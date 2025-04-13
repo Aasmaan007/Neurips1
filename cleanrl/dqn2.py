@@ -83,6 +83,8 @@ class Args:
     """hidden units for both Qnetwork and Discriminator"""
     episode_logging: int = 1
     """number of episodes after which episodic plots are plotted"""
+    gradient_freq: int  = 1000
+    """ gradient logging after given numer of .backward calls()"""
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -171,6 +173,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     discriminator = Discriminator(env.observation_space.shape[0], args.n_skills , args.hidden_units).to(device)
     discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate)
     cross_ent_loss = torch.nn.CrossEntropyLoss()
+
+    if args.track:
+        wandb.watch(
+            models=[q_network, discriminator],
+            log="all",          # can also use "gradients" or "parameters"
+            log_freq=args.gradient_freq,     # every 1000 backward() calls
+            log_graph=False
+        )
 
 
     obs_shape = env.observation_space.shape[0] + args.n_skills
