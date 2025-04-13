@@ -51,7 +51,7 @@ class Args:
     # """ number of episodes """
     max_timesteps: int = 1000
     """timesteps per episode"""
-    learning_rate: float = 3e-4
+    learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
     num_env: int = 1
     """the number of parallel game environments"""
@@ -288,7 +288,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
 
 
-        if (episode % args.epi_hist == 0):
+        if (global_step > args.learning_starts and episode % args.epi_hist == 0):
             for skill_id in range(args.n_skills):
                 raw_rewards = skill_reward_dict[skill_id]
                 print(f"[DEBUG] skill {skill_id}, rewards type: {type(raw_rewards)}, content: {raw_rewards[:5]}")
@@ -306,7 +306,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
 
 
-        if (episode % args.save_model_every == 0):
+        if (global_step > args.learning_starts and episode % args.save_model_every == 0):
             model_dir = f"runs/checkpoints/{run_name}"
             os.makedirs(model_dir, exist_ok=True)
             torch.save({
