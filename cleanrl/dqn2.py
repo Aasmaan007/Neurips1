@@ -157,6 +157,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    print("-----------------------------------------------------------------------------------------------------------------------------------------------")
+    print("Using device:", device)
 
    
     env = make_env(args.env_id, args.seed, 0, args.capture_video, run_name)()

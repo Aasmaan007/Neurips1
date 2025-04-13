@@ -21,7 +21,7 @@ class Args:
     env_id: str = "LunarLander-v2"
     n_skills: int = 5
     eval_episodes_per_skill: int = 10
-    model_path: str = "runs/checkpoints/LunarLander-v2__dqn2__1__2025-04-12_23-50-05__1744482005/latest.pth"
+    model_path: str = "runs/checkpoints/LunarLander-v2__dqn2__1__2025-04-13_15-58-22__1744540102/latest.pth"
     wandb_project_name: str = "Diayn_LunarLander_Evaluate"
     wandb_entity: str = None
     track: bool = True
