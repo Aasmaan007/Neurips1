@@ -73,9 +73,9 @@ class Args:
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 0
     """timestep to start learning"""
-    n_skills: int = 5
+    n_skills: int = 20
     """ number of skills """
-    epi_hist: int  = 50
+    epi_hist: int  = 250
     """ epsiodes after which histogram plotted"""
     save_model_every: int = 250
     """ epsiodes after which model saved"""
@@ -193,7 +193,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     episode = 0
 
 
-    while global_step < args.total_timesteps and  episode<501:
+    while global_step < args.total_timesteps:
         # ALGO LOGIC: put action logic here
         z = np.random.choice(args.n_skills)
         state, _ = env.reset(seed=args.seed + episode)
@@ -266,7 +266,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             running_logq_zs = 0.99 *running_logq_zs + 0.01 * average_logq_zs
         
         if(episode % args.episode_logging == 0):   
-            print(f"Episodic Return for {episode} with {steps} number of steps  is {episode_reward}")
+            if(episode % 10 == 0):
+                print(f"Episodic Return for {episode} with {steps} number of steps  is {episode_reward}")
             writer.add_scalar("charts_by_episode/episodic_return", episode_reward, episode)
             writer.add_scalar("charts_by_episode/episodic_logq_zs", average_logq_zs, episode)
             writer.add_scalar("charts_by_episode/Running logq(z|s)", running_logq_zs, episode)
