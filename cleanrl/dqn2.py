@@ -229,11 +229,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step > args.learning_starts:
                 data = rb.sample(args.batch_size)
                 # Update Q_network
-                loss, old_val = train_dqn(q_network, target_network, discriminator, data, device, args, global_step)
+                loss, old_val = train_dqn(q_network, target_network, discriminator, data, device, args, global_step , optimizer)
 
                 # Update discriminator
                 zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
-                disc_loss = train_discriminator(discriminator, data, zs, device)
+                disc_loss = train_discriminator(discriminator, data, zs, device , discriminator_opt)
                 logq_zses.append(disc_loss)
                 
 
