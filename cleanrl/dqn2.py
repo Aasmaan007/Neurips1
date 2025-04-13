@@ -59,7 +59,7 @@ class Args:
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
-    tau: float = 0.005
+    tau: float = 1
     """the target network update rate"""
     target_network_frequency: int = 500
     """the timesteps it takes to update the target network"""
@@ -71,7 +71,7 @@ class Args:
     """the ending epsilon for exploration"""
     exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 0
+    learning_starts: int = 10000
     """timestep to start learning"""
     n_skills: int = 20
     """ number of skills """
@@ -265,7 +265,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         else:
             running_logq_zs = 0.99 *running_logq_zs + 0.01 * average_logq_zs
         
-        if(episode % args.episode_logging == 0):   
+        if(global_step > args.learning_starts and episode % args.episode_logging == 0):   
             if(episode % 10 == 0):
                 print(f"Episodic Return for {episode} with {steps} number of steps  is {episode_reward}")
             writer.add_scalar("charts_by_episode/episodic_return", episode_reward, episode)
