@@ -229,7 +229,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step > args.learning_starts:
                 data = rb.sample(args.batch_size)
                 # Update Q_network
-                loss, old_val = train_dqn(q_network, target_network, discriminator, data, device, args, global_step , optimizer)
+                loss, old_val , intrinsic_rewards = train_dqn(q_network, target_network, discriminator, data, device, args, global_step , optimizer)
 
                 # Update discriminator
                 zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
@@ -267,13 +267,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         
         if(global_step > args.learning_starts and episode % args.episode_logging == 0):   
             if(episode % 10 == 0):
-                print(f"Episodic Return for {episode} with {steps} number of steps  is {episode_reward}")
+                print(f"Episodic Return for {episode} with {steps} number of steps  is {episode_reward} and global steps {global_step}")
             writer.add_scalar("charts_by_episode/episodic_return", episode_reward, episode)
             writer.add_scalar("charts_by_episode/episodic_logq_zs", average_logq_zs, episode)
             writer.add_scalar("charts_by_episode/Running logq(z|s)", running_logq_zs, episode)
             writer.add_scalar("charts_by_episode/SPS", int(global_step / (time.time() - start_time)), episode)
             writer.add_scalar("losses_by_episode/td_loss", loss.item(), episode)
             writer.add_scalar("losses_by_episode/q_values", old_val.mean().item(), episode)
+            writer.add_scalar("charts_by_episode/average_intrinsic_reward", intrinsic_rewards.mean().item(), episode)
 
             wandb.log({
                 "episodic/episodic_return": float(episode_reward),
@@ -281,6 +282,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 "episodic/Running logq(z|s)": float(running_logq_zs.item() if hasattr(running_logq_zs, 'item') else running_logq_zs),
                 "episodic/td_loss": float(loss.item()),
                 "episodic/q_values": float(old_val.mean().item()),
+                "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item())
                 # "episode": int(episode)
             } , step = int(episode))
           
