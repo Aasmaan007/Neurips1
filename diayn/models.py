@@ -33,7 +33,8 @@ class Discriminator(nn.Module, ABC):
 class QNetwork(nn.Module):
     def __init__(self, env, n_skills, hidden_dim=300):
         super(QNetwork, self).__init__()
-        input_dim = np.prod(env.observation_space.shape) + n_skills
+        # input_dim = np.prod(env.observation_space.shape) + n_skills
+        input_dim = np.prod(env.observation_space.shape)
         n_actions = env.action_space.n
 
         self.fc1 = nn.Linear(input_dim, hidden_dim)

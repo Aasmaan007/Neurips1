@@ -25,9 +25,9 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = False
+    track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "DQN"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -41,9 +41,9 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "CartPole-v1"
+    env_id: str = "LunarLander-v2"
     """the id of the environment"""
-    total_timesteps: int = 500000
+    total_timesteps: int = 5000000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
@@ -126,12 +126,16 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         wandb.init(
             project=args.wandb_project_name,
             entity=args.wandb_entity,
-            sync_tensorboard=True,
+            # sync_tensorboard=True,
             config=vars(args),
             name=run_name,
-            monitor_gym=True,
+            # monitor_gym=True,
             save_code=True,
         )
+        wandb.define_metric("global_step")
+        wandb.define_metric("stepwise/*", step_metric="gobal_step")      
+        wandb.config.update(vars(args), allow_val_change=True)
+
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -156,6 +160,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
+
+    if args.track:
+        wandb.watch(
+            models=[q_network],
+            log="all",          # can also use "gradients" or "parameters"
+            log_freq=1000,     # every 1000 backward() calls
+            log_graph=False
+        )
 
     rb = ReplayBuffer(
         args.buffer_size,
@@ -213,6 +225,12 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+
+                    wandb.log({
+                        "stepwise/q_values":float(old_val.mean().item()),
+                        "stepwise/reward":float(data.rewards.flatten().mean().item()),
+
+                    } , step = int(global_step))
 
                 # optimize the model
                 optimizer.zero_grad()
