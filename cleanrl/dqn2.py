@@ -16,7 +16,7 @@ import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from cleanrl.diayn.models import Discriminator, QNetwork
-from cleanrl.diayn.utils import train_dqn, train_discriminator
+from cleanrl.diayn.utils import train_dqn, train_discriminator , test_dqn
 from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
 
@@ -197,6 +197,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         device,
         handle_timeout_termination=False,
     )
+    rb_test =  ReplayBuffer(
+        args.buffer_size,
+        augmented_obs_space,
+        env.action_space,
+        device,
+        handle_timeout_termination=False,
+    )
 
     obs_dim = np.prod(env.observation_space.shape)
     action_space = env.action_space
@@ -227,6 +234,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             next_state, reward, termination, truncation, info = env.step(action)
             next_state_aug = concat_state_latent(next_state, z, args.n_skills)
             rb.add(
+                np.array([state]),
+                np.array([next_state_aug]),
+                np.array([action]),
+                np.array([0.0]),
+                np.array([termination]),
+                [info]
+            )
+            if(termination):
+                rb_test.add(
                 np.array([state]),
                 np.array([next_state_aug]),
                 np.array([action]),
@@ -282,16 +298,21 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             writer.add_scalar("losses_by_episode/td_loss", loss.item(), episode)
             writer.add_scalar("losses_by_episode/q_values", old_val.mean().item(), episode)
             writer.add_scalar("charts_by_episode/average_intrinsic_reward", intrinsic_rewards.mean().item(), episode)
-
+            
+            data = rb_test.sample(5)
+            td_target =  test_dqn(target_network, discriminator, data, device, args)
+            
             wandb.log({
                 "episodic/episodic_return": float(episode_reward),
                 "episodic/episodic_logq_zs": float(average_logq_zs.item() if hasattr(average_logq_zs, 'item') else average_logq_zs),
                 "episodic/Running logq(z|s)": float(running_logq_zs.item() if hasattr(running_logq_zs, 'item') else running_logq_zs),
                 "episodic/td_loss": float(loss.item()),
                 "episodic/q_values": float(old_val.mean().item()),
-                "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item())
+                "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
+                "episodic/terminal_td_target":float(td_target.mean().item())
                 # "episode": int(episode)
             } , step = int(episode))
+           
           
 
 
