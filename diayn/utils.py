@@ -24,8 +24,7 @@ def train_dqn(q_network, target_network, discriminator, data, device, args, glob
     # Calculate Q-values and loss
     with torch.no_grad():
         target_max, _ = target_network(next_states).max(dim=1)
-        dones = data.dones.flatten().float()
-        td_target = intrinsic_rewards + args.gamma * target_max * (1 - dones)
+        td_target = intrinsic_rewards + args.gamma * target_max * (1 - data.dones.flatten())
 
     old_val = q_network(states).gather(1, data.actions).squeeze()
     loss = F.mse_loss(td_target, old_val)

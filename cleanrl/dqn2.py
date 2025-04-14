@@ -18,6 +18,8 @@ from torch.utils.tensorboard import SummaryWriter
 from cleanrl.diayn.models import Discriminator, QNetwork
 from cleanrl.diayn.utils import train_dqn, train_discriminator
 from gymnasium import spaces
+from gymnasium.wrappers import TimeLimit
+
 from collections import defaultdict
 
 
@@ -45,7 +47,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "LunarLander-v2"
     """the id of the environment"""
-    total_timesteps: int = 5000000
+    total_timesteps: int = 50000
     """"total timesteps"""
     # max_episodes: int = 5001
     # """ number of episodes """
@@ -83,7 +85,7 @@ class Args:
     """hidden units for both Qnetwork and Discriminator"""
     episode_logging: int = 1
     """number of episodes after which episodic plots are plotted"""
-    gradient_freq: int  = 1000
+    gradient_freq: int  = 100
     """ gradient logging after given numer of .backward calls()"""
 
 def concat_state_latent(s, z, n_skills):
@@ -92,16 +94,18 @@ def concat_state_latent(s, z, n_skills):
     return np.concatenate([s, z_one_hot], axis=-1)
 
 
-def make_env(env_id, seed, idx, capture_video, run_name):
+def make_env(env_id, seed, idx, capture_video, run_name , max_timesteps):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
+            env = TimeLimit(env, max_timesteps)
             env = gym.wrappers.RecordVideo(
                 env,
                 f"videos/{run_name}",
             )
         else:
             env = gym.make(env_id)
+            env = TimeLimit(env, max_timesteps)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
         return env
@@ -163,7 +167,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     print("Using device:", device)
 
    
-    env = make_env(args.env_id, args.seed, 0, args.capture_video, run_name)()
+    env = make_env(args.env_id, args.seed, 0, args.capture_video, run_name , args.max_timesteps)()
 
     q_network = QNetwork(env , args.n_skills , args.hidden_units).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
@@ -176,7 +180,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     if args.track:
         wandb.watch(
-            models=[q_network, discriminator],
+            models=[q_network],
             log="all",          # can also use "gradients" or "parameters"
             log_freq=args.gradient_freq,     # every 1000 backward() calls
             log_graph=False
@@ -211,7 +215,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         episode_reward = 0
         logq_zses = []
 
-        for steps in range(args.max_timesteps):
+        for steps in range(args.max_timesteps+5):
 
             epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
             if random.random() < epsilon:
@@ -220,14 +224,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 q_values = q_network(torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device))
                 action = torch.argmax(q_values, dim=1).item()
 
-            next_state, reward, done, _, info = env.step(action)
+            next_state, reward, termination, truncation, info = env.step(action)
             next_state_aug = concat_state_latent(next_state, z, args.n_skills)
             rb.add(
                 np.array([state]),
                 np.array([next_state_aug]),
                 np.array([action]),
                 np.array([0.0]),
-                np.array([done]),
+                np.array([termination]),
                 [info]
             )
 
@@ -245,13 +249,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
                 disc_loss = train_discriminator(discriminator, data, zs, device , discriminator_opt)
                 logq_zses.append(disc_loss)
-                
-
-
-                # if global_step % 100 == 0:
-                #     writer.add_scalar("losses_by_global_step/td_loss", loss.item(), global_step)
-                #     writer.add_scalar("losses_by_global_step/q_values", old_val.mean().item(), global_step)
-                #     writer.add_scalar("charts_by_global_step/SPS", int(global_step / (time.time() - start_time)), global_step)
                     
                 # update target network
                 if global_step % args.target_network_frequency == 0:
@@ -259,8 +256,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                         target_network_param.data.copy_(
                             args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                         )
-                if done:
-                    break
+            if termination or truncation:
+                break
 
         episode+=1
                 
