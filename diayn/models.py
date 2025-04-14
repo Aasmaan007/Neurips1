@@ -31,22 +31,15 @@ class Discriminator(nn.Module, ABC):
         return logits
 
 class QNetwork(nn.Module):
-    def __init__(self, env, n_skills, hidden_dim=300):
-        super(QNetwork, self).__init__()
-        # input_dim = np.prod(env.observation_space.shape) + n_skills
-        input_dim = np.prod(env.observation_space.shape)
-        n_actions = env.action_space.n
-
-        self.fc1 = nn.Linear(input_dim, hidden_dim)
-        init_weight(self.fc1)
-
-        self.fc2 = nn.Linear(hidden_dim, hidden_dim)
-        init_weight(self.fc2)
-
-        self.out = nn.Linear(hidden_dim, n_actions)
-        init_weight(self.out, "xavier uniform")
+    def __init__(self, env):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(np.array(env.observation_space.shape).prod(), 120),
+            nn.ReLU(),
+            nn.Linear(120, 84),
+            nn.ReLU(),
+            nn.Linear(84, env.action_space.n),
+        )
 
     def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.out(x)
+        return self.network(x)

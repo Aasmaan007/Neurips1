@@ -87,6 +87,8 @@ class Args:
     """number of episodes after which episodic plots are plotted"""
     gradient_freq: int  = 100
     """ gradient logging after given numer of .backward calls()"""
+    train_frequency: int = 10
+    """the frequency of training"""
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -169,9 +171,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
    
     env = make_env(args.env_id, args.seed, 0, args.capture_video, run_name , args.max_timesteps)()
 
-    q_network = QNetwork(env , args.n_skills , args.hidden_units).to(device)
+    q_network = QNetwork(env).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(env , args.n_skills , args.hidden_units).to(device)
+    target_network = QNetwork(env).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     # discriminator = Discriminator(env.observation_space.shape[0], args.n_skills , args.hidden_units).to(device)
@@ -258,24 +260,26 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
             # ALGO LOGIC: training.
             if global_step > args.learning_starts:
-                data = rb.sample(args.batch_size)
-                # Update Q_network
-                # loss, old_val = train_dqn2(q_network, target_network,data, device, args, global_step , optimizer)
-                states = data.observations
-                next_states = data.next_observations
+                
+                if(global_step % args.train_frequency == 0):
+                    data = rb.sample(args.batch_size)
+                    # Update Q_network
+                    # loss, old_val = train_dqn2(q_network, target_network,data, device, args, global_step , optimizer)
+                    states = data.observations
+                    next_states = data.next_observations
 
-                with torch.no_grad():
-                    target_max, _ = target_network(next_states).max(dim=1)
-                    td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                    bootstrapping = args.gamma * target_max * (1 - data.dones.flatten())
+                    with torch.no_grad():
+                        target_max, _ = target_network(next_states).max(dim=1)
+                        td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
+                        bootstrapping = args.gamma * target_max * (1 - data.dones.flatten())
 
-                old_val = q_network(states).gather(1, data.actions).squeeze()
-                loss = F.mse_loss(td_target, old_val)
+                    old_val = q_network(states).gather(1, data.actions).squeeze()
+                    loss = F.mse_loss(td_target, old_val)
 
-                # Optimize Q-network
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
+                    # Optimize Q-network
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
 
                 # Update discriminator
                 # zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
