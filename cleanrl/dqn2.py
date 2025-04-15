@@ -318,7 +318,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 "episodic/td_loss": float(loss.item()),
                 "episodic/q_values": float(old_val.mean().item()),
                 "episodic/global_steps": float(global_step),
-                # # "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
+                "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
                 "episodic/log_qz": float(logqz.mean().item()),
                 "episodic/td_target": float(td_target.mean().item()),
                 "episodic/bootstrapping": float(bootstrapping.mean().item()),
@@ -335,21 +335,21 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
 
 
-        # if (global_step > args.learning_starts and episode % args.epi_hist == 0):
-        #     for skill_id in range(args.n_skills):
-        #         raw_rewards = skill_reward_dict[skill_id]
-        #         print(f"[DEBUG] skill {skill_id}, rewards type: {type(raw_rewards)}, content: {raw_rewards[:5]}")
-        #         rewards = np.array(raw_rewards, dtype=np.float32)
-        #         if len(rewards) > 1:
-        #             writer.add_histogram(
-        #                 f"skills/skill_{skill_id}_reward_distribution_every_{args.epi_hist}_episodes",
-        #                 rewards,
-        #                 episode
-        #             )
-        #             wandb.log({
-        #                 f"skills/skill_{skill_id}_reward_distribution": wandb.Histogram(rewards)
-        #             }, step=episode)
-        #     skill_reward_dict.clear()
+        if (global_step > args.learning_starts and episode % args.epi_hist == 0):
+            for skill_id in range(args.n_skills):
+                raw_rewards = skill_reward_dict[skill_id]
+                # print(f"[DEBUG] skill {skill_id}, rewards type: {type(raw_rewards)}, content: {raw_rewards[:5]}")
+                rewards = np.array(raw_rewards, dtype=np.float32)
+                if len(rewards) > 1:
+                    writer.add_histogram(
+                        f"skills/skill_{skill_id}_reward_distribution_every_{args.epi_hist}_episodes",
+                        rewards,
+                        episode
+                    )
+                    wandb.log({
+                        f"skills/skill_{skill_id}_reward_distribution": wandb.Histogram(rewards)
+                    }, step=episode)
+            skill_reward_dict.clear()
 
 
 
