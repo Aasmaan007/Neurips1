@@ -37,7 +37,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "Diayn_LunarLander_Train"
+    wandb_project_name: str = "Diayn_LunarLander_DiscriminatorDiffArchitecture"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -75,14 +75,14 @@ class Args:
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
-    n_skills: int = 20
+    n_skills: int = 5
     """ number of skills """
     epi_hist: int  = 250
     """ epsiodes after which histogram plotted"""
     save_model_every: int = 1000
     """ epsiodes after which model saved"""
-    hidden_units: int = 200
-    """hidden units for both Qnetwork and Discriminator"""
+    # hidden_units: int = 200
+    # """hidden units for both Qnetwork and Discriminator"""
     episode_logging: int = 1
     """number of episodes after which episodic plots are plotted"""
     gradient_freq: int  = 1000
@@ -176,7 +176,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     target_network = QNetwork(env , args.n_skills).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills , args.hidden_units).to(device)
+    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills).to(device)
     discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate)
     cross_ent_loss = torch.nn.CrossEntropyLoss()
 
