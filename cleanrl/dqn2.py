@@ -87,7 +87,7 @@ class Args:
     """number of episodes after which episodic plots are plotted"""
     gradient_freq: int  = 100
     """ gradient logging after given numer of .backward calls()"""
-    train_frequency: int = 10
+    train_frequency: int = 1
     """the frequency of training"""
 
 def concat_state_latent(s, z, n_skills):
@@ -296,6 +296,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 break
 
         episode+=1
+        print(f"global steps {global_step}")
                 
         # if(len(logq_zses)==0):
         #     average_logq_zs = 0
@@ -328,6 +329,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 # "episodic/Running logq(z|s)": float(running_logq_zs.item() if hasattr(running_logq_zs, 'item') else running_logq_zs),
                 # "episodic/td_loss": float(loss.item()),
                 "episodic/q_values": float(old_val.mean().item()),
+                "episodic/global_steps": float(global_step),
                 # # "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
                 # "episodic/log_qz": float(logqz.mean().item()),
                 # "episodic/td_target": float(td_target.mean().item()),
