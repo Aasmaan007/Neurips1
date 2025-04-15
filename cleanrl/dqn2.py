@@ -47,7 +47,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "LunarLander-v2"
     """the id of the environment"""
-    total_timesteps: int = 5000000
+    total_timesteps: int = 7000000
     """"total timesteps"""
     # max_episodes: int = 5001
     # """ number of episodes """
@@ -75,17 +75,17 @@ class Args:
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
-    n_skills: int = 5
+    n_skills: int = 20
     """ number of skills """
     epi_hist: int  = 250
     """ epsiodes after which histogram plotted"""
-    save_model_every: int = 250
+    save_model_every: int = 1000
     """ epsiodes after which model saved"""
-    hidden_units: int = 128
+    hidden_units: int = 200
     """hidden units for both Qnetwork and Discriminator"""
     episode_logging: int = 1
     """number of episodes after which episodic plots are plotted"""
-    gradient_freq: int  = 100
+    gradient_freq: int  = 1000
     """ gradient logging after given numer of .backward calls()"""
     train_frequency: int = 10
     """the frequency of training"""
@@ -353,14 +353,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
 
 
-        # if (global_step > args.learning_starts and episode % args.save_model_every == 0):
-        #     model_dir = f"runs/checkpoints/{run_name}"
-        #     os.makedirs(model_dir, exist_ok=True)
-        #     torch.save({
-        #         "q_network_state_dict": q_network.state_dict(),
-        #         "discriminator_state_dict": discriminator.state_dict(),
-        #         "episode": episode
-        #     }, os.path.join(model_dir, f"latest.pth"))
+        if (global_step > args.learning_starts and episode % args.save_model_every == 0):
+            model_dir = f"runs/checkpoints/{run_name}"
+            os.makedirs(model_dir, exist_ok=True)
+            torch.save({
+                "q_network_state_dict": q_network.state_dict(),
+                "discriminator_state_dict": discriminator.state_dict(),
+                "episode": episode
+            }, os.path.join(model_dir, f"latest.pth"))
 
     env.close()
     writer.close()
