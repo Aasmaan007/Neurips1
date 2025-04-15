@@ -18,9 +18,9 @@ def train_dqn(q_network, target_network, discriminator, data, device, args, glob
     logpz = torch.tensor(1.0 / args.n_skills + 1e-6).log().to(device)
     intrinsic_rewards = (logq_z - logpz).detach()
     # if(global_step % 500 == 0):
-    #     print("Intrinsic rewards (first 5):", intrinsic_rewards[:5].cpu().numpy())
-    if(global_step % 500 == 0):
-        print("logq_z (first 5):", logq_z[:5].detach().cpu().numpy())
+    # #     print("Intrinsic rewards (first 5):", intrinsic_rewards[:5].cpu().numpy())
+    # if(global_step % 500 == 0):
+    #     print("logq_z (first 5):", logq_z[:5].detach().cpu().numpy())
     # Calculate Q-values and loss
     with torch.no_grad():
         target_max, _ = target_network(next_states).max(dim=1)

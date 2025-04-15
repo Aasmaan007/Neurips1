@@ -57,7 +57,7 @@ class Args:
     """the learning rate of the optimizer"""
     num_env: int = 1
     """the number of parallel game environments"""
-    buffer_size: int = 10000
+    buffer_size: int = 1000000
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -65,7 +65,7 @@ class Args:
     """the target network update rate"""
     target_network_frequency: int = 500
     """the timesteps it takes to update the target network"""
-    batch_size: int = 128
+    batch_size: int = 256
     """the batch size of sample from the reply memory"""
     start_e: float = 1
     """the starting epsilon for exploration"""
@@ -75,7 +75,7 @@ class Args:
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
-    n_skills: int = 20
+    n_skills: int = 5
     """ number of skills """
     epi_hist: int  = 250
     """ epsiodes after which histogram plotted"""
@@ -87,7 +87,7 @@ class Args:
     """number of episodes after which episodic plots are plotted"""
     gradient_freq: int  = 100
     """ gradient logging after given numer of .backward calls()"""
-    train_frequency: int = 1
+    train_frequency: int = 10
     """the frequency of training"""
 
 def concat_state_latent(s, z, n_skills):
@@ -171,14 +171,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
    
     env = make_env(args.env_id, args.seed, 0, args.capture_video, run_name , args.max_timesteps)()
 
-    q_network = QNetwork(env).to(device)
+    q_network = QNetwork(env , args.n_skills).to(device)
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
-    target_network = QNetwork(env).to(device)
+    target_network = QNetwork(env , args.n_skills).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    # discriminator = Discriminator(env.observation_space.shape[0], args.n_skills , args.hidden_units).to(device)
-    # discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate)
-    # cross_ent_loss = torch.nn.CrossEntropyLoss()
+    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills , args.hidden_units).to(device)
+    discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate)
+    cross_ent_loss = torch.nn.CrossEntropyLoss()
 
     if args.track:
         wandb.watch(
@@ -189,12 +189,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
 
 
-    # obs_shape = env.observation_space.shape[0] + args.n_skills
-    # augmented_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_shape,), dtype=np.float32)
+    obs_shape = env.observation_space.shape[0] + args.n_skills
+    augmented_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_shape,), dtype=np.float32)
 
     rb = ReplayBuffer(
         args.buffer_size,
-        env.observation_space,
+        # env.observation_space,
+        augmented_obs_space,
         env.action_space,
         device,
         handle_timeout_termination=False,
@@ -218,11 +219,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     while global_step < args.total_timesteps:
         # ALGO LOGIC: put action logic here
-        # z = np.random.choice(args.n_skills)
+        z = np.random.choice(args.n_skills)
         state, _ = env.reset(seed=args.seed + episode)
-        # state = concat_state_latent(state, z, args.n_skills)
+        state = concat_state_latent(state, z, args.n_skills)
         episode_reward = 0
-        # logq_zses = []
+        logq_zses = []
 
         for steps in range(args.max_timesteps+5):
 
@@ -234,10 +235,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 action = torch.argmax(q_values, dim=1).item()
 
             next_state, reward, termination, truncation, info = env.step(action)
-            # next_state_aug = concat_state_latent(next_state, z, args.n_skills)
+            next_state_aug = concat_state_latent(next_state, z, args.n_skills)
             rb.add(
                 np.array([state]),
-                np.array([next_state]),
+                np.array([next_state_aug]),
                 np.array([action]),
                 np.array([reward]),
                 np.array([termination]),
@@ -253,8 +254,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             #     [info]
             # )
 
-            # state = next_state_aug
-            state = next_state
+            state = next_state_aug
+            # state = next_state
             episode_reward += reward
             global_step += 1
 
@@ -264,27 +265,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 if(global_step % args.train_frequency == 0):
                     data = rb.sample(args.batch_size)
                     # Update Q_network
-                    # loss, old_val = train_dqn2(q_network, target_network,data, device, args, global_step , optimizer)
-                    states = data.observations
-                    next_states = data.next_observations
+                    loss, old_val , intrinsic_rewards , logqz , td_target , bootstrapping = train_dqn(q_network, target_network,discriminator , data, device, args, global_step , optimizer)
+            
 
-                    with torch.no_grad():
-                        target_max, _ = target_network(next_states).max(dim=1)
-                        td_target = data.rewards.flatten() + args.gamma * target_max * (1 - data.dones.flatten())
-                        bootstrapping = args.gamma * target_max * (1 - data.dones.flatten())
-
-                    old_val = q_network(states).gather(1, data.actions).squeeze()
-                    loss = F.mse_loss(td_target, old_val)
-
-                    # Optimize Q-network
-                    optimizer.zero_grad()
-                    loss.backward()
-                    optimizer.step()
-
-                # Update discriminator
-                # zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
-                # disc_loss = train_discriminator(discriminator, data, zs, device , discriminator_opt)
-                # logq_zses.append(disc_loss)
+                    # Update discriminator
+                    zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
+                    disc_loss = train_discriminator(discriminator, data, zs, device , discriminator_opt)
+                    logq_zses.append(disc_loss)
                     
                 # update target network
                 if global_step % args.target_network_frequency == 0:
@@ -296,13 +283,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 break
 
         episode+=1
-        print(f"global steps {global_step}")
+        if(global_step % 100 == 0):
+            print(f"global steps {global_step}")
                 
-        # if(len(logq_zses)==0):
-        #     average_logq_zs = 0
-        # else:
-        #     average_logq_zs = sum(logq_zses) / len(logq_zses)
-        # skill_reward_dict[z].append(episode_reward)  # store reward under correct skill
+        if(len(logq_zses)==0):
+            average_logq_zs = 0
+        else:
+            average_logq_zs = sum(logq_zses) / len(logq_zses)
+        skill_reward_dict[z].append(episode_reward)  # store reward under correct skill
 
         # if running_logq_zs == 0:
         #     running_logq_zs = average_logq_zs
@@ -325,15 +313,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             
             wandb.log({
                 # "episodic/episodic_return": float(episode_reward),
-                # "episodic/episodic_logq_zs": float(average_logq_zs.item() if hasattr(average_logq_zs, 'item') else average_logq_zs),
+                "episodic/episodic_logq_zs": float(average_logq_zs.item() if hasattr(average_logq_zs, 'item') else average_logq_zs),
                 # "episodic/Running logq(z|s)": float(running_logq_zs.item() if hasattr(running_logq_zs, 'item') else running_logq_zs),
-                # "episodic/td_loss": float(loss.item()),
+                "episodic/td_loss": float(loss.item()),
                 "episodic/q_values": float(old_val.mean().item()),
                 "episodic/global_steps": float(global_step),
                 # # "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
-                # "episodic/log_qz": float(logqz.mean().item()),
-                # "episodic/td_target": float(td_target.mean().item()),
-                # "episodic/bootstrapping": float(bootstrapping.mean().item()),
+                "episodic/log_qz": float(logqz.mean().item()),
+                "episodic/td_target": float(td_target.mean().item()),
+                "episodic/bootstrapping": float(bootstrapping.mean().item()),
                 # "episodic/terminal_td_target":float(terminal_td_target.mean().item()),
                 # "episodic/terminal_bootstrapping":float(terminal_bootstrapping.mean().item()),
                 # # "episodic/terminal_intrinsic":float(terminal_intrinsic.mean().item()),
