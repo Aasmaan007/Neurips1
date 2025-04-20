@@ -21,12 +21,12 @@ class Args:
     env_id: str = "LunarLander-v2"
     n_skills: int = 5
     eval_episodes_per_skill: int = 10
-    model_path: str = "runs/checkpoints/LunarLander-v2__dqn2__1__2025-04-13_15-58-22__1744540102/latest.pth"
+    model_path: str = "runs/checkpoints/diayn/LunarLander-v2__dqn2__1__2025-04-13_15-58-22__1744540102/latest.pth"
     wandb_project_name: str = "Diayn_LunarLander_Evaluate"
     wandb_entity: str = None
     track: bool = True
     max_timesteps: int = 1000
-    record_every_x_episode: int = 5
+    record_every_x_episode: int = 3
     
 
 def make_env(env_id, seed, skill, run_name, capture_video, record_every_x_episodes):
@@ -59,7 +59,7 @@ def evaluate_skill_policy(q_network, env_fn, device, skill, n_skills, eval_episo
     returns = []
     env = env_fn(skill)()  # Create the environment only once per skill
     for ep in range(eval_episodes):
-        obs, _ = env.reset()
+        obs, _ = env.reset(seed = args.seed+ep+skill)
         obs = concat_state_latent(obs, skill, n_skills)
         episode_return = 0
         done = False
@@ -117,6 +117,7 @@ if __name__ == "__main__":
 
     # Evaluate for each skill
     for skill in range(args.n_skills):
+        
         avg_return , returns = evaluate_skill_policy(
             q_network,
             env_fn,
@@ -128,11 +129,10 @@ if __name__ == "__main__":
         )
         returns_array = np.array(returns, dtype=np.float32)
         writer.add_histogram(
-            f"eval/skill_reward_distribution",
+            f"eval/skill_reward_distribution_skill",
             returns_array,
             skill
         )
-
 
         # TensorBoard scalar
         writer.add_scalar(f"eval/skill_{skill}_mean_reward", avg_return, 0)

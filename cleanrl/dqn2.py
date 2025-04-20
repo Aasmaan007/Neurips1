@@ -27,7 +27,7 @@ from collections import defaultdict
 
 @dataclass
 class Args:
-    exp_name: str = os.path.basename(__file__)[: -len(".py")]
+    exp_name: str = "diayn"
     """the name of this experiment"""
     seed: int = 1
     """seed of the experiment"""
@@ -77,8 +77,8 @@ class Args:
     """timestep to start learning"""
     n_skills: int = 5
     """ number of skills """
-    epi_hist: int  = 250
-    """ epsiodes after which histogram plotted"""
+    step_hist_save: int  = 250000
+    """ globalsteps after which histogram plotted and model saved"""
     save_model_every: int = 250
     """ epsiodes after which model saved"""
     hidden_units: int = 128
@@ -244,15 +244,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 np.array([termination]),
                 [info]
             )
-            # if(termination):
-            #     rb_test.add(
-            #     np.array([state]),
-            #     np.array([next_state_aug]),
-            #     np.array([action]),
-            #     np.array([reward]),
-            #     np.array([termination]),
-            #     [info]
-            # )
+
 
             state = next_state_aug
             # state = next_state
@@ -279,6 +271,29 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                         target_network_param.data.copy_(
                             args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                         )
+
+
+
+            if (global_step > args.learning_starts and global_step % args.step_hist_save == 0):
+                for skill_id in range(args.n_skills):
+                    raw_rewards = skill_reward_dict[skill_id]
+                    rewards = np.array(raw_rewards, dtype=np.float32)
+                    writer.add_histogram(
+                        f"skills/skill_{skill_id}_reward_distribution_every_{args.step_hist}_globalsteps",
+                        rewards,
+                        global_step
+                    )
+                
+                model_dir = f"runs/checkpoints/diayn/{run_name}"
+                os.makedirs(model_dir, exist_ok=True)
+                torch.save({
+                    "q_network_state_dict": q_network.state_dict(),
+                    "discriminator_state_dict": discriminator.state_dict(),
+                    "episode": episode
+                }, os.path.join(model_dir, f"latest.pth"))       
+                skill_reward_dict.clear()
+
+
             if termination or truncation:
                 break
 
@@ -292,75 +307,18 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             average_logq_zs = sum(logq_zses) / len(logq_zses)
         skill_reward_dict[z].append(episode_reward)  # store reward under correct skill
 
-        # if running_logq_zs == 0:
-        #     running_logq_zs = average_logq_zs
-        # else:
-        #     running_logq_zs = 0.99 *running_logq_zs + 0.01 * average_logq_zs
+     
         
-        if(global_step > args.learning_starts and episode % args.episode_logging == 0):   
-            # if(episode % 10 == 0):
-            #     print(f"Episodic Return for {episode} with {steps} number of steps  is {episode_reward} and global steps {global_step}")
-            # writer.add_scalar("charts_by_episode/episodic_return", episode_reward, episode)
-            # writer.add_scalar("charts_by_episode/episodic_logq_zs", average_logq_zs, episode)
-            # writer.add_scalar("charts_by_episode/Running logq(z|s)", running_logq_zs, episode)
-            # writer.add_scalar("charts_by_episode/SPS", int(global_step / (time.time() - start_time)), episode)
-            # writer.add_scalar("losses_by_episode/td_loss", loss.item(), episode)
-            # writer.add_scalar("losses_by_episode/q_values", old_val.mean().item(), episode)
-            # writer.add_scalar("charts_by_episode/average_intrinsic_reward", intrinsic_rewards.mean().item(), episode)
-            
-            # data = rb_test.sample(10)
-            # terminal_bootstrapping , terminal_intrinsic , terminal_logqz , terminal_td_target =  test_dqn(target_network, discriminator, data, device, args)
-            
+        if(global_step > args.learning_starts and episode % args.episode_logging == 0): 
             wandb.log({
-                # "episodic/episodic_return": float(episode_reward),
                 "episodic/episodic_logq_zs": float(average_logq_zs.item() if hasattr(average_logq_zs, 'item') else average_logq_zs),
-                # "episodic/Running logq(z|s)": float(running_logq_zs.item() if hasattr(running_logq_zs, 'item') else running_logq_zs),
                 "episodic/td_loss": float(loss.item()),
                 "episodic/q_values": float(old_val.mean().item()),
                 "episodic/global_steps": float(global_step),
                 "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
                 "episodic/log_qz": float(logqz.mean().item()),
                 "episodic/td_target": float(td_target.mean().item()),
-                "episodic/bootstrapping": float(bootstrapping.mean().item()),
-                # "episodic/terminal_td_target":float(terminal_td_target.mean().item()),
-                # "episodic/terminal_bootstrapping":float(terminal_bootstrapping.mean().item()),
-                # # "episodic/terminal_intrinsic":float(terminal_intrinsic.mean().item()),
-                # "episodic/terminal_logqz":float(terminal_logqz.mean().item()),
-
-                # "episode": int(episode)
             } , step = int(episode))
-           
-          
-
-
-
-
-        if (global_step > args.learning_starts and episode % args.epi_hist == 0):
-            for skill_id in range(args.n_skills):
-                raw_rewards = skill_reward_dict[skill_id]
-                # print(f"[DEBUG] skill {skill_id}, rewards type: {type(raw_rewards)}, content: {raw_rewards[:5]}")
-                rewards = np.array(raw_rewards, dtype=np.float32)
-                if len(rewards) > 1:
-                    writer.add_histogram(
-                        f"skills/skill_{skill_id}_reward_distribution_every_{args.epi_hist}_episodes",
-                        rewards,
-                        episode
-                    )
-                    wandb.log({
-                        f"skills/skill_{skill_id}_reward_distribution": wandb.Histogram(rewards)
-                    }, step=episode)
-            skill_reward_dict.clear()
-
-
-
-        # if (global_step > args.learning_starts and episode % args.save_model_every == 0):
-        #     model_dir = f"runs/checkpoints/{run_name}"
-        #     os.makedirs(model_dir, exist_ok=True)
-        #     torch.save({
-        #         "q_network_state_dict": q_network.state_dict(),
-        #         "discriminator_state_dict": discriminator.state_dict(),
-        #         "episode": episode
-        #     }, os.path.join(model_dir, f"latest.pth"))
-
+    
     env.close()
     writer.close()

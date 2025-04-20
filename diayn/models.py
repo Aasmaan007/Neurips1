@@ -43,3 +43,44 @@ class QNetwork(nn.Module):
 
     def forward(self, x):
         return self.network(x)
+
+class FeatureNetwork(nn.Module):
+    def __init__(self, env , sf_dim):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(env.observation_space.shape, 120),
+            nn.ReLU(),
+            nn.Linear(120, 84),
+            nn.ReLU(),
+            nn.Linear(84, sf_dim),
+        )
+
+    def forward(self, x):
+        basis =  self.network(x)
+        basis_normalised =  F.normalize(basis, p=2, dim=-1)
+        return basis , basis_normalised
+
+
+class SFNetwork(nn.Module):
+    def __init__(self, state_dim, action_dim, sf_dim=32, hidden_sizes=(120, 84)):
+        super(SFNetwork, self).__init__()
+        self.input_dim = state_dim + action_dim
+        self.sf_dim = sf_dim
+
+        self.l1 = nn.Linear(self.input_dim, hidden_sizes[0])
+        self.l2 = nn.Linear(hidden_sizes[0], hidden_sizes[1])
+        self.l3 = nn.Linear(hidden_sizes[1], sf_dim)
+
+
+    def argforward(self, state, action, weights , task):
+        x = torch.cat([state, action], dim=-1)
+        x = F.linear(x, weights[0], weights[1])
+        x = F.relu(x)
+        x = F.linear(x, weights[2], weights[3])
+        x = F.relu(x)
+        x = F.linear(x, weights[4], weights[5])
+        
+        q_pred = torch.einsum("bi,bi->b", task, x)
+        return q_pred
+
+
