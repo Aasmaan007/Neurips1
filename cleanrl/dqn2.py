@@ -37,7 +37,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "Diayn_LunarLander_Train"
+    wandb_project_name: str = "Diayn15"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -47,15 +47,17 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "LunarLander-v2"
     """the id of the environment"""
-    total_timesteps: int = 5000000
+    total_timesteps: int = 10000000
     """"total timesteps"""
     # max_episodes: int = 5001
     # """ number of episodes """
     max_timesteps: int = 1000
     """timesteps per episode"""
-    learning_rate: float = 2.5e-4
+    learning_rate: float = 1e-4
     """the learning rate of the optimizer"""
     num_env: int = 1
+
+
     """the number of parallel game environments"""
     buffer_size: int = 1000000
     """the replay memory buffer size"""
@@ -63,32 +65,33 @@ class Args:
     """the discount factor gamma"""
     tau: float = 1
     """the target network update rate"""
-    target_network_frequency: int = 500
+    target_network_frequency: int = 1000
     """the timesteps it takes to update the target network"""
-    batch_size: int = 256
+    batch_size: int = 32
     """the batch size of sample from the reply memory"""
     start_e: float = 1
     """the starting epsilon for exploration"""
-    end_e: float = 0.05
+    end_e: float = 0.01
     """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.5
+    exploration_fraction: float = 0.1
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 10000
+    learning_starts: int = 80000
     """timestep to start learning"""
-    n_skills: int = 5
+    n_skills: int = 15
     """ number of skills """
     step_hist_save: int  = 250000
     """ globalsteps after which histogram plotted and model saved"""
-    save_model_every: int = 250
-    """ epsiodes after which model saved"""
-    hidden_units: int = 128
+    # save_model_every: int = 250
+    # """ epsiodes after which model saved"""
+    #hidden_units: int = 128
     """hidden units for both Qnetwork and Discriminator"""
     episode_logging: int = 1
     """number of episodes after which episodic plots are plotted"""
-    gradient_freq: int  = 100
+    gradient_freq: int  = 1000
     """ gradient logging after given numer of .backward calls()"""
-    train_frequency: int = 10
+    train_frequency: int = 4
     """the frequency of training"""
+    terminal_batch_size: int  = 32
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -176,7 +179,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     target_network = QNetwork(env , args.n_skills).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
-    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills , args.hidden_units).to(device)
+    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills ).to(device)
     discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate)
     cross_ent_loss = torch.nn.CrossEntropyLoss()
 
@@ -200,13 +203,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         device,
         handle_timeout_termination=False,
     )
-    # rb_test =  ReplayBuffer(
-    #     10,
-    #     augmented_obs_space,
-    #     env.action_space,
-    #     device,
-    #     handle_timeout_termination=False,
-    # )
+    rb_test =  ReplayBuffer(
+        args.buffer_size,
+        augmented_obs_space,
+        env.action_space,
+        device,
+        handle_timeout_termination=False,
+    )
 
     obs_dim = np.prod(env.observation_space.shape)
     action_space = env.action_space
@@ -244,7 +247,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 np.array([termination]),
                 [info]
             )
-
+            if(termination):
+                rb_test.add(
+                np.array([state]),
+                np.array([next_state_aug]),
+                np.array([action]),
+                np.array([reward]),
+                np.array([termination]),
+                [info]
+            )
 
             state = next_state_aug
             # state = next_state
@@ -264,6 +275,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
                     disc_loss = train_discriminator(discriminator, data, zs, device , discriminator_opt)
                     logq_zses.append(disc_loss)
+                    data = rb_test.sample(args.terminal_batch_size)
+                    bootstrapping_terminal , intrinsic_rewards_terminal , q_val = test_dqn(target_network, discriminator, data, device, q_network, args , optimizer)
                     
                 # update target network
                 if global_step % args.target_network_frequency == 0:
@@ -279,7 +292,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     raw_rewards = skill_reward_dict[skill_id]
                     rewards = np.array(raw_rewards, dtype=np.float32)
                     writer.add_histogram(
-                        f"skills/skill_{skill_id}_reward_distribution_every_{args.step_hist}_globalsteps",
+                        f"skills/skill_{skill_id}_reward_distribution_every_{args.step_hist_save}_globalsteps",
                         rewards,
                         global_step
                     )
@@ -318,6 +331,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
                 "episodic/log_qz": float(logqz.mean().item()),
                 "episodic/td_target": float(td_target.mean().item()),
+                "episodic/terminal/qval": float(q_val.mean().item()),
+                "episodic/terminal/bootstrapping": float(bootstrapping_terminal.mean().item()),
+                "episodic/terminal/intrinsic_reward": float(intrinsic_rewards_terminal.mean().item()),
+
             } , step = int(episode))
     
     env.close()

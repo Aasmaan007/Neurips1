@@ -12,16 +12,16 @@ def init_weight(layer, initializer="he normal"):
     layer.bias.data.zero_()
 
 class Discriminator(nn.Module, ABC):
-    def __init__(self, n_states, n_skills, n_hidden_filters=300):
+    def __init__(self, n_states, n_skills):
         super(Discriminator, self).__init__()
         self.input_dim = n_states
-        self.hidden1 = nn.Linear(n_states, n_hidden_filters)
+        self.hidden1 = nn.Linear(n_states, 120)
         init_weight(self.hidden1)
 
-        self.hidden2 = nn.Linear(n_hidden_filters, n_hidden_filters)
+        self.hidden2 = nn.Linear(120, 32)
         init_weight(self.hidden2)
 
-        self.q = nn.Linear(n_hidden_filters, n_skills)
+        self.q = nn.Linear(32, n_skills)
         init_weight(self.q, initializer="xavier uniform")
 
     def forward(self, states):

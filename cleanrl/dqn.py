@@ -91,9 +91,9 @@ class QNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
+            nn.Linear(np.array(env.single_observation_space.shape).prod(), 128),
             nn.ReLU(),
-            nn.Linear(120, 84),
+            nn.Linear(128, 84),
             nn.ReLU(),
             nn.Linear(84, env.single_action_space.n),
         )
