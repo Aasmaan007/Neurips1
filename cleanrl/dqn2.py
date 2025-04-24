@@ -16,9 +16,10 @@ import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 from cleanrl.diayn.models import Discriminator, QNetwork
-from cleanrl.diayn.utils import train_dqn, train_discriminator , test_dqn , train_dqn2
+from cleanrl.diayn.utils import train_dqn, train_discriminator , test_dqn ,  merge_batches
 from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
+
 
 from collections import defaultdict
 
@@ -37,7 +38,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "Diayn15"
+    wandb_project_name: str = "Diaynparamscheck"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -61,6 +62,9 @@ class Args:
     """the number of parallel game environments"""
     buffer_size: int = 1000000
     """the replay memory buffer size"""
+    buffer_size_terminal: int = 20000
+    '''terminal replay buffer'''
+
     gamma: float = 0.99
     """the discount factor gamma"""
     tau: float = 1
@@ -69,13 +73,15 @@ class Args:
     """the timesteps it takes to update the target network"""
     batch_size: int = 32
     """the batch size of sample from the reply memory"""
+    batch_size_terminal: int  = 1
+    '''numbre of terminal transitions for update'''
     start_e: float = 1
     """the starting epsilon for exploration"""
     end_e: float = 0.01
     """the ending epsilon for exploration"""
     exploration_fraction: float = 0.1
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 80000
+    learning_starts: int = 10000
     """timestep to start learning"""
     n_skills: int = 15
     """ number of skills """
@@ -91,7 +97,13 @@ class Args:
     """ gradient logging after given numer of .backward calls()"""
     train_frequency: int = 4
     """the frequency of training"""
-    terminal_batch_size: int  = 32
+    batch_size_terminal_log: int  = 32
+    
+    rewardclipping: bool = True
+    '''gradient clipping '''
+    ddqn: bool = True
+    '''whether to use ddqn'''
+
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -203,8 +215,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         device,
         handle_timeout_termination=False,
     )
-    rb_test =  ReplayBuffer(
-        args.buffer_size,
+    rb_terminal =  ReplayBuffer(
+        args.buffer_size_terminal,
         augmented_obs_space,
         env.action_space,
         device,
@@ -248,7 +260,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 [info]
             )
             if(termination):
-                rb_test.add(
+                rb_terminal.add(
                 np.array([state]),
                 np.array([next_state_aug]),
                 np.array([action]),
@@ -266,7 +278,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step > args.learning_starts:
                 
                 if(global_step % args.train_frequency == 0):
-                    data = rb.sample(args.batch_size)
+                    maindata = rb.sample(args.batch_size - 1)
+                    dataterminal = rb_terminal.sample(args.batch_size_terminal)
+                    data = merge_batches(maindata , dataterminal)
                     # Update Q_network
                     loss, old_val , intrinsic_rewards , logqz , td_target , bootstrapping = train_dqn(q_network, target_network,discriminator , data, device, args, global_step , optimizer)
             
@@ -275,8 +289,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     zs = data.observations[:, -args.n_skills:].argmax(dim=1)  # extract skills from one-hot
                     disc_loss = train_discriminator(discriminator, data, zs, device , discriminator_opt)
                     logq_zses.append(disc_loss)
-                    data = rb_test.sample(args.terminal_batch_size)
-                    bootstrapping_terminal , intrinsic_rewards_terminal , q_val = test_dqn(target_network, discriminator, data, device, q_network, args , optimizer)
+                    data = rb_terminal.sample(args.batch_size_terminal_log)
+                    bootstrapping_terminal , intrinsic_rewards_terminal , q_val , loss_terminal = test_dqn(target_network, discriminator, data, device, q_network, args , optimizer)
                     
                 # update target network
                 if global_step % args.target_network_frequency == 0:
@@ -334,6 +348,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 "episodic/terminal/qval": float(q_val.mean().item()),
                 "episodic/terminal/bootstrapping": float(bootstrapping_terminal.mean().item()),
                 "episodic/terminal/intrinsic_reward": float(intrinsic_rewards_terminal.mean().item()),
+                "episodic/terminal/td_loss": float(loss_terminal.item()),
 
             } , step = int(episode))
     
