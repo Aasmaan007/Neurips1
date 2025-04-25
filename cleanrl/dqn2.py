@@ -54,8 +54,11 @@ class Args:
     # """ number of episodes """
     max_timesteps: int = 1000
     """timesteps per episode"""
-    learning_rate: float = 1e-4
-    """the learning rate of the optimizer"""
+    learning_rate_qnet: float = 6e-5
+    """the learning rate of the qnet optimizer"""
+    learning_rate_discriminator: float = 1e-4
+    """the learning rate of the qnet optimizer"""
+
     num_env: int = 1
 
 
@@ -69,9 +72,9 @@ class Args:
     """the discount factor gamma"""
     tau: float = 1
     """the target network update rate"""
-    target_network_frequency: int = 1000
+    target_network_frequency: int = 750
     """the timesteps it takes to update the target network"""
-    batch_size: int = 32
+    batch_size: int = 64
     """the batch size of sample from the reply memory"""
     batch_size_terminal: int  = 1
     '''numbre of terminal transitions for update'''
@@ -83,7 +86,7 @@ class Args:
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
-    n_skills: int = 15
+    n_skills: int = 25
     """ number of skills """
     step_hist_save: int  = 250000
     """ globalsteps after which histogram plotted and model saved"""
@@ -95,10 +98,10 @@ class Args:
     """number of episodes after which episodic plots are plotted"""
     gradient_freq: int  = 1000
     """ gradient logging after given numer of .backward calls()"""
-    train_frequency: int = 4
+    train_frequency: int = 6
     """the frequency of training"""
     batch_size_terminal_log: int  = 32
-    
+
     rewardclipping: bool = True
     '''gradient clipping '''
     ddqn: bool = True
@@ -187,12 +190,12 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     env = make_env(args.env_id, args.seed, 0, args.capture_video, run_name , args.max_timesteps)()
 
     q_network = QNetwork(env , args.n_skills).to(device)
-    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
+    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate_qnet)
     target_network = QNetwork(env , args.n_skills).to(device)
     target_network.load_state_dict(q_network.state_dict())
 
     discriminator = Discriminator(env.observation_space.shape[0], args.n_skills ).to(device)
-    discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate)
+    discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate_discriminator)
     cross_ent_loss = torch.nn.CrossEntropyLoss()
 
     if args.track:
@@ -278,9 +281,17 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step > args.learning_starts:
                 
                 if(global_step % args.train_frequency == 0):
-                    maindata = rb.sample(args.batch_size - 1)
+                    maindata = rb.sample(args.batch_size - args.batch_size_terminal)
                     dataterminal = rb_terminal.sample(args.batch_size_terminal)
                     data = merge_batches(maindata , dataterminal)
+
+                    # # Right after sampling merged data
+                    # print("Sampled observations device:", data.observations.device)
+                    # print("Next obs device:", data.next_observations.device)
+                    # print("Actions device:", data.actions.device)
+                    # print("q_network param device:", next(q_network.parameters()).device)
+
+                    assert data.observations.device.type == device.type
                     # Update Q_network
                     loss, old_val , intrinsic_rewards , logqz , td_target , bootstrapping = train_dqn(q_network, target_network,discriminator , data, device, args, global_step , optimizer)
             

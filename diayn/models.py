@@ -38,6 +38,8 @@ class QNetwork(nn.Module):
             nn.ReLU(),
             nn.Linear(120, 84),
             nn.ReLU(),
+            # nn.Linear(84, 84),
+            # nn.ReLU(),
             nn.Linear(84, env.action_space.n),
         )
 
