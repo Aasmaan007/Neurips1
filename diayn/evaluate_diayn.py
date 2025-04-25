@@ -8,6 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 from cleanrl.diayn.models import Discriminator, QNetwork
 from cleanrl.cleanrl.dqn2 import concat_state_latent
 from gymnasium.wrappers.record_video import RecordVideo
+from gymnasium.wrappers import TimeLimit
 import tyro
 import wandb
 
@@ -19,9 +20,9 @@ class Args:
     cuda: bool = True
     capture_video: bool = True
     env_id: str = "LunarLander-v2"
-    n_skills: int = 5
-    eval_episodes_per_skill: int = 10
-    model_path: str = "runs/checkpoints/diayn/LunarLander-v2__dqn2__1__2025-04-13_15-58-22__1744540102/latest.pth"
+    n_skills: int = 25
+    eval_episodes_per_skill: int = 15
+    model_path: str = "runs/checkpoints/latest.pth"
     wandb_project_name: str = "Diayn_LunarLander_Evaluate"
     wandb_entity: str = None
     track: bool = True
@@ -38,6 +39,7 @@ def make_env(env_id, seed, skill, run_name, capture_video, record_every_x_episod
 
     def thunk():
         env = gym.make(env_id, render_mode="rgb_array")
+        env = TimeLimit(env, args.max_timesteps)
         if capture_video:
             video_folder = os.path.join("videos", run_name)
             name_prefix = f"skill_{skill}"
@@ -62,15 +64,14 @@ def evaluate_skill_policy(q_network, env_fn, device, skill, n_skills, eval_episo
         obs, _ = env.reset(seed = args.seed+ep+skill)
         obs = concat_state_latent(obs, skill, n_skills)
         episode_return = 0
-        done = False
-        for steps in range(timesteps):
+        for steps in range(timesteps+5):
             with torch.no_grad():
                 obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
                 action = torch.argmax(q_network(obs_tensor), dim=1).item()
-            next_obs, reward, done, _, _ = env.step(action)
+            next_obs, reward, termination, truncation, _ = env.step(action)
             obs = concat_state_latent(next_obs, skill, n_skills)
             episode_return += reward
-            if done:
+            if termination or truncation:
                 break
         returns.append(episode_return)
     env.close()
@@ -89,7 +90,7 @@ if __name__ == "__main__":
             entity=args.wandb_entity,
             config=vars(args),
             name=run_name,
-            monitor_gym=False,
+            monitor_gym=True,
             save_code=True,
         )
 
@@ -97,21 +98,26 @@ if __name__ == "__main__":
     writer = SummaryWriter(f"runs/evaluate/{run_name}")
     writer.add_text("eval_hyperparams", str(vars(args)))
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
-
+    
     # Create env factory for each skill (creates only one environment per skill)
     env_fn = lambda skill: make_env(args.env_id, args.seed, skill, run_name, capture_video=args.capture_video , record_every_x_episodes = args.record_every_x_episode)
 
     # Initialize the model
     temp_env = gym.make(args.env_id)
-    q_network = QNetwork(temp_env, args.n_skills).to(device)
-    discriminator = Discriminator(temp_env.observation_space.shape[0], args.n_skills).to(device)
+    q_network = QNetwork(temp_env, args.n_skills)
+    discriminator = Discriminator(temp_env.observation_space.shape[0], args.n_skills)
     temp_env.close()
 
     # Load model weights
-    checkpoint = torch.load(args.model_path)
+    checkpoint = torch.load(args.model_path , map_location=torch.device("cpu"))
     q_network.load_state_dict(checkpoint["q_network_state_dict"])
     discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
+
+    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    q_network.to(device)
+    discriminator.to(device)
+
+
 
     mean_returns_per_skill = []
 
@@ -134,12 +140,12 @@ if __name__ == "__main__":
             skill
         )
 
-        # TensorBoard scalar
-        writer.add_scalar(f"eval/skill_{skill}_mean_reward", avg_return, 0)
+        # # TensorBoard scalar
+        # writer.add_scalar(f"eval/skill_{skill}_mean_reward", avg_return, 0)
 
-        # W&B scalar
-        if args.track:
-            wandb.log({f"eval/skill_{skill}_mean_reward": avg_return}, step=0)
+        # # W&B scalar
+        # if args.track:
+        #     wandb.log({f"eval/skill_{skill}_mean_reward": avg_return}, step=0)
 
         mean_returns_per_skill.append(avg_return)
 
