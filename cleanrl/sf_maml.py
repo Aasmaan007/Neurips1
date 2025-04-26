@@ -27,23 +27,27 @@ class Args:
     model_path: str = "runs/checkpoints/latest.pth"
     sf_dim: int = 32
     n_skills: int = 25
+    n_skills_epoch: int = 12
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-2
-    outer_lr: float = 1e-3
-    batch_size: int = 32
+    outer_lr: float = 3e-4
     num_epochs: int = 1000
-    support_size: int = 16
-    query_size: int = 16
-    val_skill: int = 0
+    support_size: int = 64
+    query_size: int = 64
+    val_skill: int = 5
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
     multi_step_loss: bool = True  
     ''' toggle multi-step outer loss'''
     use_fixed_outer_loss_weights: bool = True
-    multi_step_loss_num_epochs: int = 100  
+    multi_step_loss_num_epochs: int = 200  
     '''for deciding weights , epochs after which almost all weight to last loss  '''
+    support_fraction: float = 0.7
+    """total fraction of dataset which is support set"""
+    num_steps: int = 3
+    '''number of inner loop updates'''
 
 def set_seed(seed):
     random.seed(seed)
@@ -60,6 +64,22 @@ def get_all_pairs(states, n_actions):
             one_hot[a] = 1.0
             all_actions.append(one_hot)
     return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)
+
+def partition_full_dataset(states, actions, support_fraction):
+    total_samples = states.size(0)
+    indices = torch.randperm(total_samples)
+
+    num_support = int(total_samples * support_fraction)
+    support_idx = indices[:num_support]
+    query_idx = indices[num_support:]
+
+    s_sup = states[support_idx]
+    a_sup = actions[support_idx]
+    s_que = states[query_idx]
+    a_que = actions[query_idx]
+
+    return (s_sup, a_sup), (s_que, a_que)
+
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -165,7 +185,10 @@ def train():
     criterion = nn.MSELoss()
 
     states, actions = get_all_pairs(state_data, args.n_actions)
+    (support_states, support_actions), (query_states, query_actions) = partition_full_dataset(states, actions, args.support_fraction)
+
     num_steps = args.num_steps
+    # number of inner loop updates 
 
 
     for epoch in range(1, args.num_epochs + 1):
@@ -173,26 +196,31 @@ def train():
         innerloss_sum = 0
         weights=list(model.parameters())
         step_loss_sums = [0.0 for _ in range(args.num_steps)]
-
+        step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
+        skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
         
-        for z in range(args.n_skills):
+        for z in skills_this_epoch:
+            
             if z == args.val_skill:
                 continue
-            w_z = discriminator.q.weight[z].detach().cpu().numpy()
-            w_z = w_z / (np.linalg.norm(w) + 1e-8)
-    
-            indices = torch.randperm(states.size(0))
-            support_idx = indices[:args.support_size]
-            query_idx = indices[args.support_size:args.support_size + args.query_size]
 
-            s_sup, a_sup = states[support_idx].to(device), actions[support_idx].to(device)
-            s_que, a_que = states[query_idx].to(device), actions[query_idx].to(device)
+            w_z = discriminator.q.weight[z].detach().to(device)
+            w_z = w_z / (np.linalg.norm(w_z) + 1e-8)
+    
+            support_indices = torch.randint(0, support_states.size(0), (args.support_size,))
+            query_indices = torch.randint(0, query_states.size(0), (args.query_size,))
+
+            s_sup = support_states[support_indices].to(device)
+            a_sup = support_actions[support_indices].to(device)
+            s_que = query_states[query_indices].to(device)
+            a_que = query_actions[query_indices].to(device)
+
 
             q_sup = get_q_values(qnet, s_sup, a_sup, z, args.n_skills, device)
             q_que = get_q_values(qnet, s_que, a_que, z, args.n_skills, device)
 
 
-            step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
+            
             
             innerloss, step_losses, metaloss = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
@@ -207,12 +235,12 @@ def train():
                 step_loss_sums[i] += step_loss
 
         
-        metaloss_sum = metaloss_sum / (args.n_skills - 1)
-        innerloss_sum = metaloss_sum / (args.n_skills - 1)
-        step_loss_avgs = [loss / (args.n_skills - 1) for loss in step_loss_sums]
+        metaloss_sum = metaloss_sum / (args.n_skills_epoch)
+        innerloss_sum = innerloss_sum / (args.n_skills_epoch)
+        step_loss_avgs = [loss / (args.n_skills_epoch) for loss in step_loss_sums]
 
 
-
+        meta_opt.zero_grad(set_to_none=True)
         metagrads=torch.autograd.grad(metaloss_sum, weights)
         for w,g in zip(weights,metagrads):
             w.grad=g
@@ -222,16 +250,19 @@ def train():
         
 
         # Validation (on a held-out skill)
-        w_z = discriminator.q.weight[z].detach().cpu().numpy()
-        w_z = w_z / (np.linalg.norm(w) + 1e-8)
-        indices = torch.randperm(states.size(0))
-        support_idx = indices[:args.support_size]
-        query_idx = indices[args.support_size:args.support_size + args.query_size]
-        s_sup, a_sup = states[support_idx].to(device), actions[support_idx].to(device)
-        s_que, a_que = states[query_idx].to(device), actions[query_idx].to(device)
+        w_z = discriminator.q.weight[args.val_skill].to(device)
+        w_z = w_z / (np.linalg.norm(w_z) + 1e-8)
 
-        q_sup = get_q_values(qnet, s_sup, a_sup, z, args.n_skills, device)
-        q_que = get_q_values(qnet, s_que, a_que, z, args.n_skills, device)
+        support_indices = torch.randint(0, support_states.size(0), (args.support_size,))
+        query_indices = torch.randint(0, query_states.size(0), (args.query_size,))
+
+        s_sup = support_states[support_indices].to(device)
+        a_sup = support_actions[support_indices].to(device)
+        s_que = query_states[query_indices].to(device)
+        a_que = query_actions[query_indices].to(device)
+
+        q_sup = get_q_values(qnet, s_sup, a_sup, args.val_skill, args.n_skills, device)
+        q_que = get_q_values(qnet, s_que, a_que, args.val_skill, args.n_skills, device)
         weights=list(model.parameters())
 
         valinnerloss , valstep_losses, valmetaloss = maml_inner_loop(
