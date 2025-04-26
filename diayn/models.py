@@ -84,5 +84,18 @@ class SFNetwork(nn.Module):
         task = task.unsqueeze(0).expand(x.size(0), -1)
         q_pred = torch.einsum("bi,bi->b", task, x)
         return q_pred
+    
+    def forward(self, state, action, task):
+        """
+        Plain forward with the *current* parameters.
+        This is what wandb will capture in its graph.
+        """
+        x = torch.cat([state, action], dim=-1)
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        x = self.l3(x)
+        # broadcast task to batch:
+        task = task.unsqueeze(0).expand(x.size(0), -1)
+        return torch.einsum("bi,bi->b", task, x)
 
 

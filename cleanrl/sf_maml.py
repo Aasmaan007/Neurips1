@@ -26,32 +26,32 @@ class Args:
     model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
     sf_dim: int = 32
     n_skills: int = 25
-    n_skills_epoch: int = 12
+    n_skills_epoch: int = 1
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
-    inner_lr: float = 3e-3
-    outer_lr: float = 3e-4
-    num_epochs: int = 100000
-    support_size: int = 64
-    query_size: int = 64
+    inner_lr: float = 1e-3
+    outer_lr: float = 1e-4
+    num_epochs: int = 1000000
+    support_size: int = 256
+    query_size: int = 128
     val_skill: int = 5
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
-    multi_step_loss: bool = True  
+    multi_step_loss: bool = False
     ''' toggle multi-step outer loss'''
     use_fixed_outer_loss_weights: bool = False
-    multi_step_loss_num_epochs: int = 10000  
+    multi_step_loss_num_epochs: int = 500000  
     '''for deciding weights , epochs after which almost all weight to last loss  '''
     support_fraction: float = 0.7
     """total fraction of dataset which is support set"""
-    num_steps: int = 2
+    num_steps: int = 3
     '''number of inner loop updates'''
     gradient_freq: int = 1
     '''every number of backward calls after which gradient logged'''
-    max_param_change_fraction: float = 0.03
+    max_param_change_fraction: float = 0.1
     '''parameter clip '''
-    max_norm: float = 1.0
+    max_norm: float = 5.0
     '''gradient clipping'''
 
 def set_seed(seed):
@@ -111,9 +111,11 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
                     step_weights=None):
     fast_weights = [w.clone() for w in weights]
     step_outer_losses = []
+    q_pred_sup_sum = 0
 
     for step in range(num_steps):
         q_pred_sup = model.argforward(s_sup, a_sup, fast_weights, w_z)
+        q_pred_sup_sum += q_pred_sup
         innerloss = criterion(q_sup, q_pred_sup)
 
         grads = torch.autograd.grad(innerloss, fast_weights, create_graph=True)
@@ -130,9 +132,9 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
         if proposed_update_norm > max_delta:
             scale = max_delta / (proposed_update_norm + 1e-8)
             grads = [g * scale for g in grads]
-
-
-        fast_weights = [w - inner_lr * g for w, g in zip(fast_weights, grads)]
+            fast_weights = [w - g for w, g in zip(fast_weights, grads)]
+        else :
+            fast_weights = [w - inner_lr * g for w, g in zip(fast_weights, grads)]
 
         q_pred_que = model.argforward(s_que, a_que, fast_weights, w_z)
         outer_loss = criterion(q_que, q_pred_que)
@@ -143,7 +145,9 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
     else:
         weighted_outer_loss = step_outer_losses[-1]  # last step only (standard MAML)
 
-    return innerloss, step_outer_losses, weighted_outer_loss
+    q_pred_sup_sum = q_pred_sup_sum / num_steps
+
+    return innerloss, step_outer_losses, weighted_outer_loss , q_pred_sup_sum
 
 def get_per_step_loss_weights(args: Args, current_epoch: int):
     weights = np.ones(args.num_steps) * (1.0 / args.num_steps)
@@ -204,6 +208,11 @@ def train():
     meta_opt = optim.Adam(model.parameters(), lr=args.outer_lr)
     criterion = nn.MSELoss()
 
+    dummy_state  = torch.zeros(1, state_dim, device=device)
+    dummy_action = torch.zeros(1, args.n_actions, device=device)
+    dummy_task   = torch.zeros(args.sf_dim,   device=device)
+    _ = model(dummy_state, dummy_action, dummy_task)
+
     if(args.track):
         wandb.watch(
             models = [model],
@@ -226,7 +235,8 @@ def train():
         step_loss_sums = [0.0 for _ in range(args.num_steps)]
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        
+        qval = 0
+        qval_pred = 0
         for z in skills_this_epoch:
             
             if z == args.val_skill:
@@ -250,11 +260,11 @@ def train():
 
             
             
-            innerloss, step_losses, metaloss = maml_inner_loop(
+            innerloss, step_losses, metaloss, qval_pred = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
                 q_sup, q_que, w_z, args.inner_lr, weights,
                 num_steps, args.max_param_change_fraction,
-                step_weights=step_weights.to(device)
+                step_weights=step_weights.to(device) if step_weights is not None else None
             )
             
             metaloss_sum += metaloss
@@ -275,7 +285,11 @@ def train():
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
         meta_opt.step()
         
-        
+        if args.track:
+            wandb.log({
+                "epochs/qval_support": float(q_sup.mean().item()),
+                "epochs/qval_support_pred": float(qval_pred.mean().item()),
+            } , step = epoch)
         
 
         # Validation (on a held-out skill)
@@ -294,11 +308,11 @@ def train():
         q_que = get_q_values(qnet, s_que, a_que, args.val_skill, args.n_skills, device)
         weights=list(model.parameters())
 
-        valinnerloss , valstep_losses, valmetaloss = maml_inner_loop(
+        valinnerloss , valstep_losses, valmetaloss , qval_pred = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
                 q_sup, q_que, w_z, args.inner_lr, weights,
                 num_steps, args.max_param_change_fraction,
-                step_weights=step_weights.to(device)
+                step_weights=step_weights.to(device) if step_weights is not None else None
             )
 
         if args.track:
@@ -324,6 +338,8 @@ def train():
 
             # Final logging
             wandb.log(log_dict, step=int(epoch))
+            for name, p in model.named_parameters():
+                wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
             print(f"Epoch number {epoch} completed")
 
 
