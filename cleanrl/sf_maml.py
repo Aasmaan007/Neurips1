@@ -18,21 +18,20 @@ from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork
 
 @dataclass
 class Args:
-    exp_name: str = "maml_sf"
     seed: int = 1
     cuda: bool = True
     env_id: str = "LunarLander-v2"
-    exp_name: str = "MAML"
-    data_path: str = "runs/data/maml_training_data.pkl"
-    model_path: str = "runs/checkpoints/latest.pth"
+    exp_name: str = "MAML_SF"
+    data_path: str = "runs/data/LunarLander-v2__data_collection_1__2025-04-26_12-49-15__1745651955/maml_training_data.pkl"
+    model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
     sf_dim: int = 32
     n_skills: int = 25
     n_skills_epoch: int = 12
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
-    inner_lr: float = 1e-2
+    inner_lr: float = 3e-3
     outer_lr: float = 3e-4
-    num_epochs: int = 1000
+    num_epochs: int = 100000
     support_size: int = 64
     query_size: int = 64
     val_skill: int = 5
@@ -41,13 +40,19 @@ class Args:
     track: bool = True
     multi_step_loss: bool = True  
     ''' toggle multi-step outer loss'''
-    use_fixed_outer_loss_weights: bool = True
-    multi_step_loss_num_epochs: int = 200  
+    use_fixed_outer_loss_weights: bool = False
+    multi_step_loss_num_epochs: int = 10000  
     '''for deciding weights , epochs after which almost all weight to last loss  '''
     support_fraction: float = 0.7
     """total fraction of dataset which is support set"""
-    num_steps: int = 3
+    num_steps: int = 2
     '''number of inner loop updates'''
+    gradient_freq: int = 1
+    '''every number of backward calls after which gradient logged'''
+    max_param_change_fraction: float = 0.03
+    '''parameter clip '''
+    max_norm: float = 1.0
+    '''gradient clipping'''
 
 def set_seed(seed):
     random.seed(seed)
@@ -102,7 +107,7 @@ def get_q_values(qnet, states, actions, z, n_skills, device):
 
 
 def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
-                    q_sup, q_que, w_z, inner_lr, weights, num_steps,
+                    q_sup, q_que, w_z, inner_lr, weights, num_steps,max_param_change_fraction,
                     step_weights=None):
     fast_weights = [w.clone() for w in weights]
     step_outer_losses = []
@@ -112,6 +117,21 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
         innerloss = criterion(q_sup, q_pred_sup)
 
         grads = torch.autograd.grad(innerloss, fast_weights, create_graph=True)
+
+        # --- Compute norms
+        total_grad_norm = torch.sqrt(sum((g.detach() ** 2).sum() for g in grads))
+        total_param_norm = torch.sqrt(sum((w.detach() ** 2).sum() for w in fast_weights))
+
+        # --- Compute maximum allowed step
+        max_delta = max_param_change_fraction * total_param_norm
+        proposed_update_norm = inner_lr * total_grad_norm
+
+        # --- Rescale gradients if step would be too big
+        if proposed_update_norm > max_delta:
+            scale = max_delta / (proposed_update_norm + 1e-8)
+            grads = [g * scale for g in grads]
+
+
         fast_weights = [w - inner_lr * g for w, g in zip(fast_weights, grads)]
 
         q_pred_que = model.argforward(s_que, a_que, fast_weights, w_z)
@@ -176,13 +196,21 @@ def train():
     discriminator = discriminator.to(device)
 
     qnet = QNetwork(env , args.n_skills)
-    qnet.load_state_dict(torch.load(args.model_path)['q_net_state_dict'])
+    qnet.load_state_dict(torch.load(args.model_path)['q_network_state_dict'])
     qnet = qnet.to(device)
     
     
     model = SFNetwork(state_dim, args.n_actions, sf_dim=args.sf_dim).to(device)
     meta_opt = optim.Adam(model.parameters(), lr=args.outer_lr)
     criterion = nn.MSELoss()
+
+    if(args.track):
+        wandb.watch(
+            models = [model],
+            log = "all",
+            log_freq = args.gradient_freq,
+            log_graph = False
+        )
 
     states, actions = get_all_pairs(state_data, args.n_actions)
     (support_states, support_actions), (query_states, query_actions) = partition_full_dataset(states, actions, args.support_fraction)
@@ -205,7 +233,7 @@ def train():
                 continue
 
             w_z = discriminator.q.weight[z].detach().to(device)
-            w_z = w_z / (np.linalg.norm(w_z) + 1e-8)
+            w_z = w_z / (torch.norm(w_z) + 1e-8)
     
             support_indices = torch.randint(0, support_states.size(0), (args.support_size,))
             query_indices = torch.randint(0, query_states.size(0), (args.query_size,))
@@ -225,7 +253,7 @@ def train():
             innerloss, step_losses, metaloss = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
                 q_sup, q_que, w_z, args.inner_lr, weights,
-                num_steps,
+                num_steps, args.max_param_change_fraction,
                 step_weights=step_weights.to(device)
             )
             
@@ -244,6 +272,7 @@ def train():
         metagrads=torch.autograd.grad(metaloss_sum, weights)
         for w,g in zip(weights,metagrads):
             w.grad=g
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
         meta_opt.step()
         
         
@@ -251,7 +280,7 @@ def train():
 
         # Validation (on a held-out skill)
         w_z = discriminator.q.weight[args.val_skill].to(device)
-        w_z = w_z / (np.linalg.norm(w_z) + 1e-8)
+        w_z = w_z / (torch.norm(w_z) + 1e-8)
 
         support_indices = torch.randint(0, support_states.size(0), (args.support_size,))
         query_indices = torch.randint(0, query_states.size(0), (args.query_size,))
@@ -268,7 +297,7 @@ def train():
         valinnerloss , valstep_losses, valmetaloss = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
                 q_sup, q_que, w_z, args.inner_lr, weights,
-                num_steps,
+                num_steps, args.max_param_change_fraction,
                 step_weights=step_weights.to(device)
             )
 
@@ -276,25 +305,26 @@ def train():
             log_dict = {
                 "epochs/train/mean_innerloss": float(innerloss_sum),
                 "epochs/train/mean_metaloss": float(metaloss_sum),
-                "epochs/train/root/mean_innerloss": float(torch.sqrt(innerloss_sum)),
-                "epochs/train/root/mean_metaloss": float(torch.sqrt(metaloss_sum)),
+                # "epochs/train/root/mean_innerloss": float(torch.sqrt(innerloss_sum)),
+                # "epochs/train/root/mean_metaloss": float(torch.sqrt(metaloss_sum)),
                 "epochs/val/innerloss": float(valinnerloss),
                 "epochs/val/metaloss": float(valmetaloss),
-                "epochs/val/root/innerloss": float(torch.sqrt(valinnerloss)),
-                "epochs/val/root/metaloss": float(torch.sqrt(valmetaloss))
+                # "epochs/val/root/innerloss": float(torch.sqrt(valinnerloss)),
+                # "epochs/val/root/metaloss": float(torch.sqrt(valmetaloss))
             }
                         # Add per-step training average losses
             for i, loss in enumerate(step_loss_avgs):
                 log_dict[f"epochs/train/outer_loss_step_{i}"] = float(loss)
-                log_dict[f"epochs/train/root/outer_loss_step_{i}"] = float(torch.sqrt(loss))
+                # log_dict[f"epochs/train/root/outer_loss_step_{i}"] = float(torch.sqrt(loss))
 
             # Add per-step validation losses
             for i, loss in enumerate(valstep_losses):
                 log_dict[f"epochs/val/outer_loss_step_{i}"] = float(loss)
-                log_dict[f"epochs/val/root/outer_loss_step_{i}"] = float(torch.sqrt(loss))
+                # log_dict[f"epochs/val/root/outer_loss_step_{i}"] = float(torch.sqrt(loss))
 
             # Final logging
             wandb.log(log_dict, step=int(epoch))
+            print(f"Epoch number {epoch} completed")
 
 
     model_dir = f"runs/checkpoints/maml/{run_name}"

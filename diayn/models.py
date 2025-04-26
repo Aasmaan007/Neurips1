@@ -81,7 +81,7 @@ class SFNetwork(nn.Module):
         x = F.linear(x, weights[2], weights[3])
         x = F.relu(x)
         x = F.linear(x, weights[4], weights[5])
-        
+        task = task.unsqueeze(0).expand(x.size(0), -1)
         q_pred = torch.einsum("bi,bi->b", task, x)
         return q_pred
 
