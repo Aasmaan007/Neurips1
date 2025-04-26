@@ -105,14 +105,6 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
 
     return innerloss, step_outer_losses, weighted_outer_loss
 
-
-def forward_with_weights(model, states, actions, weights):
-    x = torch.cat([states, actions], dim=-1)
-    x = F.relu(F.linear(x, weights[0], weights[1]))
-    x = F.relu(F.linear(x, weights[2], weights[3]))
-    x = F.linear(x, weights[4], weights[5])
-    return x
-
 def get_per_step_loss_weights(args: Args, current_epoch: int):
     weights = np.ones(args.num_steps) * (1.0 / args.num_steps)
     
@@ -186,7 +178,8 @@ def train():
         for z in range(args.n_skills):
             if z == args.val_skill:
                 continue
-            w_z = discriminator.get_last_layer_weights(z).detach().to(device)
+            w_z = discriminator.q.weight[z].detach().cpu().numpy()
+            w_z = w_z / (np.linalg.norm(w) + 1e-8)
     
             indices = torch.randperm(states.size(0))
             support_idx = indices[:args.support_size]
@@ -229,7 +222,8 @@ def train():
         
 
         # Validation (on a held-out skill)
-        w_z = discriminator.get_last_layer_weights(args.val_skill).detach().to(device)
+        w_z = discriminator.q.weight[z].detach().cpu().numpy()
+        w_z = w_z / (np.linalg.norm(w) + 1e-8)
         indices = torch.randperm(states.size(0))
         support_idx = indices[:args.support_size]
         query_idx = indices[args.support_size:args.support_size + args.query_size]

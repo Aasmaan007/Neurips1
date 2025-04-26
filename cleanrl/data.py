@@ -13,7 +13,6 @@ from gymnasium.wrappers import TimeLimit
 import torch.nn.functional as F
 from gymnasium import spaces
 
-from cleanrl.sf.models import FeatureNetwork
 from cleanrl.diayn.models import Discriminator, QNetwork
 import wandb
 import pickle
@@ -23,23 +22,20 @@ class Args:
     seed: int = 1
     cuda: bool = True
     env_id: str = "LunarLander-v2"
-    total_timesteps: int = 1000000
+    total_timesteps: int = 120000
     max_timesteps: int = 1000
-    learning_rate: float = 2.5e-4
-    buffer_size: int = 50000
-    batch_size: int = 256
     n_skills: int = 25
-    sf_dim: int = 32
-    model_path: str = "runs/checkpoints/diayn/runnamelatest.pth"
-    start_e: float = 0.5
-    end_e: float = 0.05
-    exploration_fraction: float = 0.5
+    model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
+    start_e: float = 1
+    end_e: float = 0.2
+    exploration_fraction: float = 0.1
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    wandb_project_name: str = "phi_feature_learning"
+    wandb_project_name: str = "data_collection"
     wandb_entity: str = None
     track: bool = True
     """wandb tracking"""
     exp_name: str = "data_collection"
+    torch_deterministic: bool = True
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -136,7 +132,7 @@ if __name__ == "__main__":
                 
                 for z_idx in range(args.n_skills):
                     r = (logq_zs[z_idx] - logpz).item()
-                    w = discriminator.get_last_layer_weights(z_idx).detach().cpu().numpy()
+                    w = discriminator.q.weight[z_idx].detach().cpu().numpy()
                     w = w / (np.linalg.norm(w) + 1e-8)
                     phi_training_data.append((obs.copy(),r, w))
                 
@@ -151,7 +147,8 @@ if __name__ == "__main__":
             if(args.track):
                 wandb.log({
                     "episodic/len_SF_data": float(len(phi_training_data)),
-                    "episodic/len_MAML_data": float(len(maml_training_data))
+                    "episodic/len_MAML_data": float(len(maml_training_data)),
+                    "episodic/global_steps": float(global_step),
                 },step = int(episode))
 
         env.close()

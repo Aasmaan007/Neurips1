@@ -22,7 +22,7 @@ class Args:
     env_id: str = "LunarLander-v2"
     n_skills: int = 25
     eval_episodes_per_skill: int = 15
-    model_path: str = "runs/checkpoints/latest.pth"
+    model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
     wandb_project_name: str = "Diayn_LunarLander_Evaluate"
     wandb_entity: str = None
     track: bool = True
@@ -109,7 +109,7 @@ if __name__ == "__main__":
     temp_env.close()
 
     # Load model weights
-    checkpoint = torch.load(args.model_path , map_location=torch.device("cpu"))
+    checkpoint = torch.load(args.model_path)
     q_network.load_state_dict(checkpoint["q_network_state_dict"])
     discriminator.load_state_dict(checkpoint["discriminator_state_dict"])
 
