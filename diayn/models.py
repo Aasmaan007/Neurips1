@@ -64,14 +64,14 @@ class FeatureNetwork(nn.Module):
 
 
 class SFNetwork(nn.Module):
-    def __init__(self, state_dim, action_dim, sf_dim=32, hidden_sizes=(120, 84)):
+    def __init__(self, state_dim, action_dim, sf_dim=32):
         super(SFNetwork, self).__init__()
         self.input_dim = state_dim + action_dim
         self.sf_dim = sf_dim
 
-        self.l1 = nn.Linear(self.input_dim, hidden_sizes[0])
-        self.l2 = nn.Linear(hidden_sizes[0], hidden_sizes[1])
-        self.l3 = nn.Linear(hidden_sizes[1], sf_dim)
+        self.l1 = nn.Linear(self.input_dim, 120)
+        self.l2 = nn.Linear(120, 84)
+        self.l3 = nn.Linear(84, sf_dim)
 
 
     def argforward(self, state, action, weights , task):
