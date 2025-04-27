@@ -49,7 +49,7 @@ class Args:
     '''number of inner loop updates'''
     gradient_freq: int = 1
     '''every number of backward calls after which gradient logged'''
-    max_param_change_fraction: float = 0.1
+    max_param_change_fraction: float = 0.02
     '''parameter clip '''
     max_norm: float = 5.0
     '''gradient clipping'''
@@ -111,12 +111,15 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
                     step_weights=None):
     fast_weights = [w.clone() for w in weights]
     step_outer_losses = []
-    q_pred_sup_sum = 0
+    step_inner_losses = []
+    q_pred_supp = []
+    q_pred_query = []
 
     for step in range(num_steps):
         q_pred_sup = model.argforward(s_sup, a_sup, fast_weights, w_z)
-        q_pred_sup_sum += q_pred_sup
+        q_pred_supp.append(q_pred_sup)
         innerloss = criterion(q_sup, q_pred_sup)
+        step_inner_losses.append(innerloss)
 
         grads = torch.autograd.grad(innerloss, fast_weights, create_graph=True)
 
@@ -137,6 +140,7 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
             fast_weights = [w - inner_lr * g for w, g in zip(fast_weights, grads)]
 
         q_pred_que = model.argforward(s_que, a_que, fast_weights, w_z)
+        q_pred_query.append(q_pred_que)
         outer_loss = criterion(q_que, q_pred_que)
         step_outer_losses.append(outer_loss)
 
@@ -145,9 +149,9 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
     else:
         weighted_outer_loss = step_outer_losses[-1]  # last step only (standard MAML)
 
-    q_pred_sup_sum = q_pred_sup_sum / num_steps
+    # q_pred_sup_sum = q_pred_sup_sum / num_steps
 
-    return innerloss, step_outer_losses, weighted_outer_loss , q_pred_sup_sum
+    return step_inner_losses, step_outer_losses, weighted_outer_loss , q_pred_supp , q_pred_query
 
 def get_per_step_loss_weights(args: Args, current_epoch: int):
     weights = np.ones(args.num_steps) * (1.0 / args.num_steps)
@@ -232,11 +236,14 @@ def train():
         metaloss_sum = 0
         innerloss_sum = 0
         weights=list(model.parameters())
-        step_loss_sums = [0.0 for _ in range(args.num_steps)]
+        step_inner_losses_sums = [0.0 for _ in range(args.num_steps)]
+        step_outer_losses_sums = [0.0 for _ in range(args.num_steps)]
+        qvalsupport_sums = [0.0 for _ in range(args.num_steps)]
+        qvalquery_sums = [0.0 for _ in range(args.num_steps)]
+
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        qval = 0
-        qval_pred = 0
+        
         for z in skills_this_epoch:
             
             if z == args.val_skill:
@@ -260,7 +267,7 @@ def train():
 
             
             
-            innerloss, step_losses, metaloss, qval_pred = maml_inner_loop(
+            step_inner_losses, step_outer_losses, metaloss, qval_pred , q_pred_supp , q_pred_query = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
                 q_sup, q_que, w_z, args.inner_lr, weights,
                 num_steps, args.max_param_change_fraction,
@@ -268,7 +275,6 @@ def train():
             )
             
             metaloss_sum += metaloss
-            innerloss_sum += innerloss
             for i, step_loss in enumerate(step_losses):
                 step_loss_sums[i] += step_loss
 
