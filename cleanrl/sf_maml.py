@@ -234,7 +234,8 @@ def train():
 
 
     for epoch in range(1, args.num_epochs + 1):
-        metaloss_sum = 0
+        # metaloss_sum = 0
+        metaloss_sum = None
         innerloss_sum = 0
         weights=list(model.parameters())
         step_inner_losses_sums = [0.0 for _ in range(args.num_steps)]
@@ -274,8 +275,10 @@ def train():
                 num_steps, args.max_param_change_fraction,
                 step_weights=step_weights.to(device) if step_weights is not None else None
             )
-            
-            metaloss_sum += metaloss
+            if metaloss_sum is None:
+                metaloss_sum = metaloss
+            else :
+                metaloss_sum = metaloss_sum + metaloss
             for i, step_loss in enumerate(step_outer_losses):
                 step_outer_losses_sums[i] += step_loss
             for i, step_loss in enumerate(step_inner_losses):
