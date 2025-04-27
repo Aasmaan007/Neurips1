@@ -30,7 +30,7 @@ class Args:
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-3
-    outer_lr: float = 1e-4
+    outer_lr: float = 1e-2
     num_epochs: int = 1000000
     support_size: int = 256
     query_size: int = 128
@@ -45,7 +45,7 @@ class Args:
     '''for deciding weights , epochs after which almost all weight to last loss  '''
     support_fraction: float = 0.7
     """total fraction of dataset which is support set"""
-    num_steps: int = 3
+    num_steps: int = 1
     '''number of inner loop updates'''
     gradient_freq: int = 1
     '''every number of backward calls after which gradient logged'''
@@ -117,7 +117,7 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
 
     for step in range(num_steps):
         q_pred_sup = model.argforward(s_sup, a_sup, fast_weights, w_z)
-        q_pred_supp.append(q_pred_sup)
+        q_pred_supp.append(q_pred_sup.mean().item())
         innerloss = criterion(q_sup, q_pred_sup)
         step_inner_losses.append(innerloss)
 
@@ -140,7 +140,7 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
             fast_weights = [w - inner_lr * g for w, g in zip(fast_weights, grads)]
 
         q_pred_que = model.argforward(s_que, a_que, fast_weights, w_z)
-        q_pred_query.append(q_pred_que)
+        q_pred_query.append(q_pred_que.mean().item())
         outer_loss = criterion(q_que, q_pred_que)
         step_outer_losses.append(outer_loss)
 
@@ -326,11 +326,11 @@ def train():
         if args.track:
             log_dict = {
                 "train/mean_metaloss": float(metaloss_avg), 
-                "train/q_sup": float(q_sup),      
-                "train/q_que": float(q_que),          
+                "train/q_sup": float(q_sup.mean().item()),      
+                "train/q_que": float(q_que.mean().item()),          
                 "val/metaloss": float(valmetaloss),
-                "val/q_sup": float(valq_sup),      
-                "val/q_que": float(valq_que), 
+                "val/q_sup": float(valq_sup.mean().item()),      
+                "val/q_que": float(valq_que.mean().item()), 
                
             }
             for i, loss in enumerate(outer_loss_avgs):
