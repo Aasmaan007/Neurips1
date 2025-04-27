@@ -26,14 +26,14 @@ class Args:
     model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
     sf_dim: int = 32
     n_skills: int = 25
-    n_skills_epoch: int = 1
+    n_skills_epoch: int = 4
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-3
     outer_lr: float = 5e-3
     num_epochs: int = 1000000
     support_size: int = 128
-    query_size: int = 128
+    query_size: int = 64
     val_skill: int = 5
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
@@ -41,7 +41,7 @@ class Args:
     multi_step_loss: bool = True
     ''' toggle multi-step outer loss'''
     use_fixed_outer_loss_weights: bool = False
-    multi_step_loss_num_epochs: int = 100000  
+    multi_step_loss_num_epochs: int = 700000  
     '''for deciding weights , epochs after which almost all weight to last loss  '''
     support_fraction: float = 0.7
     """total fraction of dataset which is support set"""
@@ -367,11 +367,11 @@ def train():
             print(f"Epoch number {epoch} completed")
 
 
-    # model_dir = f"runs/checkpoints/maml/{run_name}"
-    # os.makedirs(model_dir, exist_ok=True)
-    # torch.save({
-    #         "sfmeta_network_state_dict": model.state_dict(),
-    #     }, os.path.join(model_dir, f"latest.pth"))
+    model_dir = f"runs/checkpoints/maml/{run_name}"
+    os.makedirs(model_dir, exist_ok=True)
+    torch.save({
+            "sfmeta_network_state_dict": model.state_dict(),
+        }, os.path.join(model_dir, f"latest.pth"))
 
 
 if __name__ == "__main__":
