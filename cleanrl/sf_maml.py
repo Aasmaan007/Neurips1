@@ -30,26 +30,26 @@ class Args:
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-3
-    outer_lr: float = 1e-2
+    outer_lr: float = 5e-3
     num_epochs: int = 1000000
-    support_size: int = 256
+    support_size: int = 128
     query_size: int = 128
     val_skill: int = 5
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
-    multi_step_loss: bool = False
+    multi_step_loss: bool = True
     ''' toggle multi-step outer loss'''
     use_fixed_outer_loss_weights: bool = False
-    multi_step_loss_num_epochs: int = 500000  
+    multi_step_loss_num_epochs: int = 100000  
     '''for deciding weights , epochs after which almost all weight to last loss  '''
     support_fraction: float = 0.7
     """total fraction of dataset which is support set"""
-    num_steps: int = 1
+    num_steps: int = 2
     '''number of inner loop updates'''
     gradient_freq: int = 1
     '''every number of backward calls after which gradient logged'''
-    max_param_change_fraction: float = 0.02
+    max_param_change_fraction: float = 0.005
     '''parameter clip '''
     max_norm: float = 5.0
     '''gradient clipping'''
@@ -244,7 +244,7 @@ def train():
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        
+        # skills_this_epoch = [6]
         for z in skills_this_epoch:
             
             if z == args.val_skill:
@@ -292,7 +292,7 @@ def train():
         qquery_avgs = [q / (args.n_skills_epoch) for q in qquery_sums]
 
         meta_opt.zero_grad(set_to_none=True)
-        metagrads=torch.autograd.grad(metaloss_sum, weights)
+        metagrads=torch.autograd.grad(metaloss_avg, weights)
         for w,g in zip(weights,metagrads):
             w.grad=g
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
