@@ -189,7 +189,8 @@ def train():
         )
         
         wandb.define_metric("epoch")
-        wandb.define_metric("epochs/*", step_metric="epoch")      
+        wandb.define_metric("train/*", step_metric="epoch")
+        wandb.define_metric("val/*", step_metric="epoch")      
         wandb.config.update(vars(args), allow_val_change=True)
 
     with open(args.data_path, "rb") as f:
@@ -238,8 +239,8 @@ def train():
         weights=list(model.parameters())
         step_inner_losses_sums = [0.0 for _ in range(args.num_steps)]
         step_outer_losses_sums = [0.0 for _ in range(args.num_steps)]
-        qvalsupport_sums = [0.0 for _ in range(args.num_steps)]
-        qvalquery_sums = [0.0 for _ in range(args.num_steps)]
+        qsupport_sums = [0.0 for _ in range(args.num_steps)]
+        qquery_sums = [0.0 for _ in range(args.num_steps)]
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
@@ -267,7 +268,7 @@ def train():
 
             
             
-            step_inner_losses, step_outer_losses, metaloss, qval_pred , q_pred_supp , q_pred_query = maml_inner_loop(
+            step_inner_losses, step_outer_losses, metaloss, q_pred_supp , q_pred_query = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
                 q_sup, q_que, w_z, args.inner_lr, weights,
                 num_steps, args.max_param_change_fraction,
@@ -275,14 +276,20 @@ def train():
             )
             
             metaloss_sum += metaloss
-            for i, step_loss in enumerate(step_losses):
-                step_loss_sums[i] += step_loss
-
+            for i, step_loss in enumerate(step_outer_losses):
+                step_outer_losses_sums[i] += step_loss
+            for i, step_loss in enumerate(step_inner_losses):
+                step_inner_losses_sums[i] += step_loss
+            for i, q in enumerate(q_pred_supp):
+                qsupport_sums[i] += q
+            for i, q in enumerate(q_pred_query):
+                qquery_sums[i] += q
         
-        metaloss_sum = metaloss_sum / (args.n_skills_epoch)
-        innerloss_sum = innerloss_sum / (args.n_skills_epoch)
-        step_loss_avgs = [loss / (args.n_skills_epoch) for loss in step_loss_sums]
-
+        metaloss_avg =    metaloss_sum / (args.n_skills_epoch)
+        outer_loss_avgs = [loss / (args.n_skills_epoch) for loss in step_outer_losses_sums]
+        inner_loss_avgs = [loss / (args.n_skills_epoch) for loss in step_inner_losses_sums]
+        qsupport_avgs = [q / (args.n_skills_epoch) for q in qsupport_sums]
+        qquery_avgs = [q / (args.n_skills_epoch) for q in qquery_sums]
 
         meta_opt.zero_grad(set_to_none=True)
         metagrads=torch.autograd.grad(metaloss_sum, weights)
@@ -291,12 +298,7 @@ def train():
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
         meta_opt.step()
         
-        if args.track:
-            wandb.log({
-                "epochs/qval_support": float(q_sup.mean().item()),
-                "epochs/qval_support_pred": float(qval_pred.mean().item()),
-            } , step = epoch)
-        
+       
 
         # Validation (on a held-out skill)
         w_z = discriminator.q.weight[args.val_skill].to(device)
@@ -310,38 +312,51 @@ def train():
         s_que = query_states[query_indices].to(device)
         a_que = query_actions[query_indices].to(device)
 
-        q_sup = get_q_values(qnet, s_sup, a_sup, args.val_skill, args.n_skills, device)
-        q_que = get_q_values(qnet, s_que, a_que, args.val_skill, args.n_skills, device)
+        valq_sup = get_q_values(qnet, s_sup, a_sup, args.val_skill, args.n_skills, device)
+        valq_que = get_q_values(qnet, s_que, a_que, args.val_skill, args.n_skills, device)
         weights=list(model.parameters())
 
-        valinnerloss , valstep_losses, valmetaloss , qval_pred = maml_inner_loop(
+        val_inner_losses , val_outer_losses, valmetaloss , valq_pred_supp , valq_pred_query = maml_inner_loop(
                 model, criterion, s_sup, a_sup, s_que, a_que,
-                q_sup, q_que, w_z, args.inner_lr, weights,
+                valq_sup, valq_que, w_z, args.inner_lr, weights,
                 num_steps, args.max_param_change_fraction,
                 step_weights=step_weights.to(device) if step_weights is not None else None
             )
 
         if args.track:
             log_dict = {
-                "epochs/train/mean_innerloss": float(innerloss_sum),
-                "epochs/train/mean_metaloss": float(metaloss_sum),
-                # "epochs/train/root/mean_innerloss": float(torch.sqrt(innerloss_sum)),
-                # "epochs/train/root/mean_metaloss": float(torch.sqrt(metaloss_sum)),
-                "epochs/val/innerloss": float(valinnerloss),
-                "epochs/val/metaloss": float(valmetaloss),
-                # "epochs/val/root/innerloss": float(torch.sqrt(valinnerloss)),
-                # "epochs/val/root/metaloss": float(torch.sqrt(valmetaloss))
+                "train/mean_metaloss": float(metaloss_avg), 
+                "train/q_sup": float(q_sup),      
+                "train/q_que": float(q_que),          
+                "val/metaloss": float(valmetaloss),
+                "val/q_sup": float(valq_sup),      
+                "val/q_que": float(valq_que), 
+               
             }
-                        # Add per-step training average losses
-            for i, loss in enumerate(step_loss_avgs):
-                log_dict[f"epochs/train/outer_loss_step_{i}"] = float(loss)
-                # log_dict[f"epochs/train/root/outer_loss_step_{i}"] = float(torch.sqrt(loss))
+            for i, loss in enumerate(outer_loss_avgs):
+                log_dict[f"train/outer(query)_loss_step_{i}"] = float(loss)
+            for i, loss in enumerate(inner_loss_avgs):
+                log_dict[f"train/inner(support)_loss_step_{i}"] = float(loss)
+            for i, q in enumerate(qquery_avgs):
+                log_dict[f"train/(q(query)_step_{i}"] = float(q)
+            for i, q in enumerate(qsupport_avgs):
+                log_dict[f"train/q(support)_step_{i}"] = float(q)
 
-            # Add per-step validation losses
-            for i, loss in enumerate(valstep_losses):
-                log_dict[f"epochs/val/outer_loss_step_{i}"] = float(loss)
-                # log_dict[f"epochs/val/root/outer_loss_step_{i}"] = float(torch.sqrt(loss))
 
+
+            for i, loss in enumerate(val_outer_losses):
+                log_dict[f"val/outer(query)_loss_step_{i}"] = float(loss)
+            for i, loss in enumerate(val_inner_losses):
+                log_dict[f"val/inner(support)_loss_step_{i}"] = float(loss)
+            for i, q in enumerate(valq_pred_query):
+                log_dict[f"val/(q(query)_step_{i}"] = float(q)
+            for i, q in enumerate(valq_pred_supp):
+                log_dict[f"val/q(support)_step_{i}"] = float(q)
+
+
+               
+            
+                
             # Final logging
             wandb.log(log_dict, step=int(epoch))
             for name, p in model.named_parameters():
@@ -349,11 +364,11 @@ def train():
             print(f"Epoch number {epoch} completed")
 
 
-    model_dir = f"runs/checkpoints/maml/{run_name}"
-    os.makedirs(model_dir, exist_ok=True)
-    torch.save({
-            "sfmeta_network_state_dict": model.state_dict(),
-        }, os.path.join(model_dir, f"latest.pth"))
+    # model_dir = f"runs/checkpoints/maml/{run_name}"
+    # os.makedirs(model_dir, exist_ok=True)
+    # torch.save({
+    #         "sfmeta_network_state_dict": model.state_dict(),
+    #     }, os.path.join(model_dir, f"latest.pth"))
 
 
 if __name__ == "__main__":
