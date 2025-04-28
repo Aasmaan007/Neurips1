@@ -123,18 +123,21 @@ if __name__ == "__main__":
                 next_obs, _, terminated, truncated, _ = env.step(action)
 
                 obs_tensor = torch.tensor(obs, dtype=torch.float32).to(device)
+                next_obs_tensor = torch.tensor(next_obs, dtype=torch.float32).to(device)
                 
                 with torch.no_grad():
-                    logits = discriminator(obs_tensor.unsqueeze(0))  # shape: [1, n_skills]
-                    logq_zs = F.log_softmax(logits, dim=-1).squeeze(0)  # shape: [n_skills]
+                    logits = discriminator(next_obs_tensor.unsqueeze(0))  # shape: [1, n_skills]
+                    q_zs = F.softmax(logits , dim = -1)
+                    q_zs_clamped = torch.clamp(q_zs,min = 1e-6)
+                    logq_zs = torch.log(q_zs_clamped)
                     logpz = torch.tensor(1.0 / args.n_skills + 1e-6).log().to(device)  # scalar
                     # r = (logq_zs[z] - logpz).item()
                 
                 for z_idx in range(args.n_skills):
-                    r = (logq_zs[z_idx] - logpz).item()
+                    r = (logq_zs[0,z_idx] - logpz).item()
                     w = discriminator.q.weight[z_idx].detach().cpu().numpy()
                     w = w / (np.linalg.norm(w) + 1e-8)
-                    phi_training_data.append((obs.copy(),r, w))
+                    phi_training_data.append((next_obs.copy(),r, w))
                 
                 maml_training_data.append(obs.copy())
 

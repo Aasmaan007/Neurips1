@@ -47,7 +47,7 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "LunarLander-v2"
     """the id of the environment"""
-    total_timesteps: int = 500000
+    total_timesteps: int = 700000
     """"total timesteps"""
     # max_episodes: int = 5001
     # """ number of episodes """
@@ -72,9 +72,9 @@ class Args:
     """the discount factor gamma"""
     tau: float = 1
     """the target network update rate"""
-    sf_target_network_frequency: int = 750
+    sf_target_network_frequency: int = 500
     """the timesteps it takes to update the target network"""
-    batch_size: int = 128
+    batch_size: int = 64
     """the batch size of sample from the reply memory"""
   
     start_e: float = 1

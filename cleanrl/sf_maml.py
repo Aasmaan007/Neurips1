@@ -34,22 +34,22 @@ class Args:
     num_epochs: int = 1000000
     support_size: int = 128
     query_size: int = 64
-    val_skill: int = 5
+    val_skill: int = 2
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
-    multi_step_loss: bool = True
+    multi_step_loss: bool = False
     ''' toggle multi-step outer loss'''
-    use_fixed_outer_loss_weights: bool = False
-    multi_step_loss_num_epochs: int = 700000  
+    use_fixed_outer_loss_weights: bool = True
+    multi_step_loss_num_epochs: int = 600000  
     '''for deciding weights , epochs after which almost all weight to last loss  '''
-    support_fraction: float = 0.7
+    support_fraction: float = 0.5
     """total fraction of dataset which is support set"""
-    num_steps: int = 2
+    num_steps: int = 1
     '''number of inner loop updates'''
     gradient_freq: int = 1
     '''every number of backward calls after which gradient logged'''
-    max_param_change_fraction: float = 0.005
+    max_param_change_fraction: float = 0.01
     '''parameter clip '''
     max_norm: float = 5.0
     '''gradient clipping'''
@@ -231,6 +231,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
+    allowed_skills = [2, 5, 6, 11, 19, 22]
 
 
     for epoch in range(1, args.num_epochs + 1):
@@ -244,7 +245,8 @@ def train():
         qquery_sums = [0.0 for _ in range(args.num_steps)]
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
-        skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
+        # skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
+        skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
         # skills_this_epoch = [6]
         for z in skills_this_epoch:
             
@@ -365,6 +367,13 @@ def train():
             for name, p in model.named_parameters():
                 wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
             print(f"Epoch number {epoch} completed")
+
+            if(epoch % 100000 == 0):
+                model_dir = f"runs/checkpoints/maml/{run_name}"
+                os.makedirs(model_dir, exist_ok=True)
+                torch.save({
+                        "sfmeta_network_state_dict": model.state_dict(),
+                    }, os.path.join(model_dir, f"latest.pth"))
 
 
     model_dir = f"runs/checkpoints/maml/{run_name}"
