@@ -145,3 +145,91 @@ def train_discriminator(discriminator, data, zs, device , discriminator_opt):
     discriminator_opt.step()
 
     return -disc_loss
+
+def train_sf(sf_network, sf_target_network, data, device, args, global_step, optimizer, z, discriminator, w , q_network):
+    """
+    Train SF Network using Bellman backup and intrinsic rewards based on discriminator.
+    Fully batched version (no slow for-loop over actions).
+    """
+    states = data.observations
+    actions = data.actions
+    next_states = data.next_observations
+    dones = data.dones.flatten()
+
+    batch_size = states.shape[0]
+
+    # ----------------------------
+    # Step 1: Compute intrinsic rewards
+    logits = discriminator(next_states[:, :discriminator.input_dim])  # only next state
+    q_zs = F.softmax(logits, dim=-1)
+    q_zs_clamped = torch.clamp(q_zs, min=1e-6)
+    logq_zs = torch.log(q_zs_clamped)
+    logq_z = logq_zs[range(batch_size), z]
+    logpz = torch.tensor(1.0 / args.n_skills + 1e-6).log().to(device)
+    intrinsic_rewards = (logq_z - logpz).detach()
+
+    # ----------------------------
+    # Step 2: Find best next action using batched evaluation
+    with torch.no_grad():
+        next_states_expanded = next_states.unsqueeze(1).repeat(1, args.n_actions, 1)  # (batch, n_actions, state_dim)
+
+        action_onehots = torch.eye(args.n_actions, device=device).unsqueeze(0).expand(batch_size, -1, -1)  # (batch, n_actions, n_actions)
+
+        next_states_flat = next_states_expanded.reshape(batch_size * args.n_actions, -1)  # (batch*n_actions, state_dim)
+        action_onehots_flat = action_onehots.reshape(batch_size * args.n_actions, -1)  # (batch*n_actions, action_dim)
+
+        q_vals_flat = sf_network(next_states_flat, action_onehots_flat, w)  # (batch*n_actions,)
+        q_vals = q_vals_flat.view(batch_size, args.n_actions)  # (batch, n_actions)
+
+        next_actions = q_vals.argmax(dim=1)  # (batch,)
+
+    # ----------------------------
+    # Step 3: Evaluate next best action value using target network
+    next_action_onehot = torch.zeros((batch_size, args.n_actions), device=device)
+    next_action_onehot.scatter_(1, next_actions.unsqueeze(1), 1.0)
+
+    with torch.no_grad():
+        target_q_values = sf_target_network(next_states, next_action_onehot, w).squeeze()
+
+    td_target = intrinsic_rewards + args.gamma * target_q_values * (1 - dones)
+
+    # ----------------------------
+    # Step 4: Evaluate current Q-values
+    action_onehot = torch.zeros((batch_size, args.n_actions), device=device)
+    action_indices = actions.long()
+    action_onehot.scatter_(1, action_indices, 1.0)
+
+    current_q_values = sf_network(states, action_onehot, w).squeeze()
+    
+
+
+    # ----------------------------
+    # Step 5: Loss and optimization
+    loss = F.mse_loss(current_q_values, td_target)
+
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+    with torch.no_grad():
+        with torch.no_grad():
+            # Step 1: Create skill one-hot
+            batch_size = states.size(0)
+            skill_onehot = torch.zeros(batch_size, args.n_skills, device=device)
+            skill_onehot[:, z] = 1.0
+
+            # Step 2: Concatenate state with skill one-hot
+            augmented_states = torch.cat([states, skill_onehot], dim=-1)  # shape (batch_size, state_dim + n_skills)
+
+            # Step 3: Pass through Q network
+            qvals = q_network(augmented_states)  # shape (batch_size, n_actions)
+
+            # Step 4: Gather Q-values for taken actions
+            action_indices = data.actions.long()
+            target_qval = qvals.gather(1, action_indices).squeeze()
+
+    
+    
+    target_loss =  F.mse_loss(current_q_values, target_qval)
+
+    return loss, current_q_values, td_target , target_loss 
