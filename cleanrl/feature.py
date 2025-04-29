@@ -17,17 +17,17 @@ from cleanrl.diayn.models import FeatureNetwork
 @dataclass
 class Args:
     exp_name: str = "phi_regression"
-    data_path: str = "runs/data/phi_training_data.pkl"
+    data_path: str = "runs/data/LunarLander-v2__data_collection_1__2025-04-28_23-26-21__1745862981/phi_training_data.pkl"
     env_id: str = "LunarLander-v2"
     seed: int = 1
     cuda: bool = True
-    total_epochs: int = 50000
+    total_epochs: int = 5000
     batch_size: int = 256
-    val_split: float = 0.1
+    val_split: float = 0.2
     sf_dim: int = 32
     learning_rate: float = 1e-3
     use_normalized: bool = False
-    wandb_project_name: str = "FeatureNet_LunarLander_Train"
+    wandb_project_name: str = "FeatureNet"
     wandb_entity: str = None
     track: bool = True
     gradient_freq: int = 1000
@@ -43,7 +43,7 @@ def set_seed(seed: int):
 def load_dataset(data_path):
     with open(data_path, "rb") as f:
         raw = pickle.load(f)
-    states, skill_idx, rewards, weights = zip(*raw)
+    states, rewards, weights = zip(*raw)
     states = torch.tensor(np.stack(states), dtype=torch.float32)
     rewards = torch.tensor(rewards, dtype=torch.float32)
     weights = torch.tensor(np.stack(weights), dtype=torch.float32)
@@ -92,10 +92,8 @@ def train():
 
         for s, r, w in train_loader:
             s, r, w = s.to(device), r.to(device), w.to(device)
-            phi_raw, phi_norm = phi_net(s)
-            phi_used = phi_norm if args.use_normalized else phi_raw
-            pred = torch.sum(phi_used * w, dim=1)
-            loss = F.mse_loss(pred, r)
+            r_pred = phi_net(s , w)
+            loss = F.mse_loss(r_pred, r)
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
@@ -110,10 +108,8 @@ def train():
         with torch.no_grad():
             for s, r, w in val_loader:
                 s, r, w = s.to(device), r.to(device), w.to(device)
-                phi_raw, phi_norm = phi_net(s)
-                phi_used = phi_norm if args.use_normalized else phi_raw
-                pred = torch.sum(phi_used * w, dim=1)
-                total_val_loss += F.mse_loss(pred, r, reduction='sum').item()
+                r_pred = phi_net(s , w)
+                total_val_loss += F.mse_loss(r_pred, r, reduction='sum').item()
 
         val_mse = total_val_loss / len(val_loader.dataset)
         val_rmse = np.sqrt(val_mse)
@@ -129,12 +125,12 @@ def train():
                 "epochs/val/rmse": float(val_rmse),
             } , step = int(epoch))
 
-
-    model_dir = f"runs/checkpoint/train_phi/{run_name}"
-    os.makedirs(model_dir, exist_ok=True)
-    torch.save({
-        "phi_network" : phi_net.state_dict()
-    }, os.path.join(model_dir , f"latest.pth"))
+        if(epoch % 5 == 0):
+            model_dir = f"runs/checkpoint/featurenet/{run_name}"
+            os.makedirs(model_dir, exist_ok=True)
+            torch.save({
+                "phi_network" : phi_net.state_dict()
+            }, os.path.join(model_dir , f"latest.pth"))
     
 
 if __name__ == "__main__":

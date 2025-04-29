@@ -30,8 +30,8 @@ class Args:
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-3
-    outer_lr: float = 5e-3
-    num_epochs: int = 1000000
+    outer_lr: float = 2.5e-3
+    num_epochs: int = 500000
     support_size: int = 128
     query_size: int = 64
     val_skill: int = 2
@@ -231,7 +231,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [2, 5, 6, 11, 19, 22]
+    allowed_skills = [1 ,2, 5, 6, 11, 22]
 
 
     for epoch in range(1, args.num_epochs + 1):
@@ -368,7 +368,7 @@ def train():
                 wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
             print(f"Epoch number {epoch} completed")
 
-            if(epoch % 100000 == 0):
+            if(epoch % 50000 == 0):
                 model_dir = f"runs/checkpoints/maml/{run_name}"
                 os.makedirs(model_dir, exist_ok=True)
                 torch.save({

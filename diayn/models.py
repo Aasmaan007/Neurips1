@@ -50,17 +50,17 @@ class FeatureNetwork(nn.Module):
     def __init__(self, env , sf_dim):
         super().__init__()
         self.network = nn.Sequential(
-            nn.Linear(env.observation_space.shape, 120),
+            nn.Linear(np.prod(env.observation_space.shape), 120),
             nn.ReLU(),
             nn.Linear(120, 84),
             nn.ReLU(),
             nn.Linear(84, sf_dim),
         )
 
-    def forward(self, x):
-        basis =  self.network(x)
-        basis_normalised =  F.normalize(basis, p=2, dim=-1)
-        return basis , basis_normalised
+    def forward(self, x , task):
+        x =  self.network(x)
+        q_pred = torch.einsum("bi,bi->b", task, x)
+        return q_pred
 
 
 class SFNetwork(nn.Module):
