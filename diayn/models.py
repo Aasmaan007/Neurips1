@@ -46,22 +46,59 @@ class QNetwork(nn.Module):
     def forward(self, x):
         return self.network(x)
 
+import torch
+import torch.nn as nn
+import numpy as np
+
 class FeatureNetwork(nn.Module):
-    def __init__(self, env , sf_dim):
+    def __init__(self, env, sf_dim, dropout_p=0.1):  # ← allow dropout probability
         super().__init__()
-        self.network = nn.Sequential(
-            nn.Linear(np.prod(env.observation_space.shape), 120),
-            nn.ReLU(),
-            nn.Linear(120, 84),
-            nn.ReLU(),
-            nn.Linear(84, sf_dim),
-        )
+        input_dim = np.prod(env.observation_space.shape)
 
-    def forward(self, x , task):
-        x =  self.network(x)
-        q_pred = torch.einsum("bi,bi->b", task, x)
+        self.fc1 = nn.Linear(input_dim, 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, sf_dim)
+
+        self.activation = nn.SiLU()
+        self.dropout = nn.Dropout(p=dropout_p)
+
+    def forward(self, x, task):
+        """
+        Args:
+            x: tensor of shape (batch_size, state_dim)
+            task: tensor of shape (batch_size, sf_dim)
+        Returns:
+            predicted reward: tensor of shape (batch_size,)
+        """
+        x1 = self.activation(self.fc1(x))
+        x2 = self.activation(self.fc2(x1))
+        x_res = x1 + x2
+
+        x3 = self.activation(self.fc3(x_res))
+        x3 = self.dropout(x3)  # ← dropout added here
+        phi = self.fc4(x3)
+
+        q_pred = torch.einsum("bi,bi->b", phi, task)
         return q_pred
+    
+    def forward2(self, x):
+        """
+        Args:
+            x: tensor of shape (batch_size, state_dim)
+            task: tensor of shape (batch_size, sf_dim)
+        Returns:
+            predicted reward: tensor of shape (batch_size,)
+        """
+        x1 = self.activation(self.fc1(x))
+        x2 = self.activation(self.fc2(x1))
+        x_res = x1 + x2
 
+        x3 = self.activation(self.fc3(x_res))
+        # x3 = self.dropout(x3)  # ← dropout added here
+        phi = self.fc4(x3)
+
+        return phi
 
 class SFNetwork(nn.Module):
     def __init__(self, state_dim, action_dim, sf_dim=32):

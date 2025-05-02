@@ -15,8 +15,8 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
-from cleanrl.diayn.models import Discriminator, QNetwork , SFNetwork , FeatureNetwork
-from cleanrl.diayn.utils import train_dqn, train_discriminator , test_dqn ,  merge_batches , train_sf , train_w
+from cleanrl.diayn.models import Discriminator, QNetwork
+from cleanrl.diayn.utils import  train_dqn_online
 from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
 
@@ -25,9 +25,10 @@ from collections import defaultdict
 
 
 
+
 @dataclass
 class Args:
-    exp_name: str = "FastAdaption"
+    exp_name: str = "q_online"
     """the name of this experiment"""
     seed: int = 1
     """seed of the experiment"""
@@ -37,7 +38,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "FastAdaption"
+    wandb_project_name: str = "q_online"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -49,72 +50,60 @@ class Args:
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
-    # max_episodes: int = 5001
-    # """ number of episodes """
+  
     max_timesteps: int = 1000
     """timesteps per episode"""
-  
-    lr_sf: float = 1e-4
-    """the learning rate of the sfnet optimizer"""
-
-    lr_w: float = 2.5e-4
-    """the learning rate of the w optimizer"""
-
-    # lr_phi: float = 2.5e-4
-    # """the learning rate of the w optimizer"""
+    learning_rate_qnet: float = 6e-5
+    """the learning rate of the qnet optimizer"""
+   
 
     num_env: int = 1
-
-    # skill: int = 5
-    # n_skills : int = 25
-    sf_dim = 32
 
 
     """the number of parallel game environments"""
     buffer_size: int = 1000000
     """the replay memory buffer size"""
-    batch_size_w: int = 1024
- 
+  
+
     gamma: float = 0.99
     """the discount factor gamma"""
     tau: float = 1
     """the target network update rate"""
-    sf_target_network_frequency: int = 1000
+    target_network_frequency: int = 750
     """the timesteps it takes to update the target network"""
-    batch_size: int = 128
+    batch_size: int = 64
     """the batch size of sample from the reply memory"""
-  
+   
     start_e: float = 1
     """the starting epsilon for exploration"""
     end_e: float = 0.01
     """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.1
+    exploration_fraction: float = 0.2
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
+    n_skills_selected: int = 6  # mapped skills: 1 → 0, 2 → 1, etc.
+    """ number of skills """
+    n_skills_total: int = 25  # mapped skills: 1 → 0, 2 → 1, etc.
+    """ number of skills """
+    model_save: int  = 250000
+    """ globalsteps after model saved"""
    
- 
-    episode_logging: int = 1
-    """number of episodes after which episodic plots are plotted"""
     gradient_freq: int  = 1000
     """ gradient logging after given numer of .backward calls()"""
     train_frequency: int = 6
-    """the frequency of training sf"""
+    """the frequency of training"""
 
-    train_w_freq: int = 30
-    """frq of training task vector"""
-
-    model_path1: str = "runs/checkpoints/env_phi_task/LunarLander-v2__joint_phi_task__1__2025-05-02_23-50-33/latest.pth"
-    model_path2: str = "runs/checkpoints/maml/LunarLander-v2__MAML_SF__1__2025-05-02_00-50-05__1746127205/latest.pth" 
-    # model_path2: str = ""
-
-    
-    dropout:float = 0.1
+    rewardclipping: bool = True
+    '''gradient clipping '''
     ddqn: bool = True
     '''whether to use ddqn'''
 
 
-
+def concat_state_latent(s, z, n_skills):
+    z_one_hot = np.zeros(n_skills, dtype=np.float32)
+    z_one_hot[z] = 1.0
+    return np.concatenate([s, z_one_hot], axis=-1)
 
 
 def make_env(env_id, seed, idx, capture_video, run_name , max_timesteps):
@@ -133,22 +122,6 @@ def make_env(env_id, seed, idx, capture_video, run_name , max_timesteps):
         env.action_space.seed(seed)
         return env
     return thunk
-
-
-def concat_state_latent(s, z, n_skills):
-    z_one_hot = np.zeros(n_skills, dtype=np.float32)
-    z_one_hot[z] = 1.0
-    return np.concatenate([s, z_one_hot], axis=-1)
-
-
-class TaskVector(nn.Module):
-    def __init__(self, dim):
-        super().__init__()
-        self.w = nn.Parameter(torch.randn(dim))
-
-    def forward(self, phi_next):
-        w_norm = self.w / (torch.norm(self.w) + 1e-8)
-        return torch.matmul(phi_next, w_norm)
 
 
 
@@ -207,74 +180,55 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
    
     env = make_env(args.env_id, args.seed, 0, args.capture_video, run_name , args.max_timesteps)()
-    args.n_actions = env.action_space.n
 
-    # q_network = QNetwork(env , args.n_skills).to(device)
-    # # discriminator = Discriminator(env.observation_space.shape[0], args.n_skills ).to(device)
+    q_network = QNetwork(env , args.n_skills_selected).to(device)
+    optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate_qnet)
+    target_network = QNetwork(env , args.n_skills_selected).to(device)
+    target_network.load_state_dict(q_network.state_dict())
+
+    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills_total).to(device)
     
-    # checkpoint1 = torch.load(args.model_path1)
-    # q_network.load_state_dict(checkpoint1["q_network_state_dict"])
-    # # discriminator.load_state_dict(checkpoint1["discriminator_state_dict"])
-    
-
-    sf_network = SFNetwork(env.observation_space.shape[0], env.action_space.n, args.sf_dim).to(device)
-    sf_target_network = SFNetwork(env.observation_space.shape[0], env.action_space.n, args.sf_dim).to(device)
-    task_vector = TaskVector(args.sf_dim).to(device)
-    phi_net = FeatureNetwork(env, args.sf_dim,args.dropout).to(device)
-
-
-    
-    checkpoint1 = torch.load(args.model_path1)
-    task_vector.load_state_dict(checkpoint1["task_vector"])
-    phi_net.load_state_dict(checkpoint1["phi_net"])
-    
-    if(args.model_path2!=""):
-        checkpoint2 = torch.load(args.model_path2)
-        sf_network.load_state_dict(checkpoint2["sfmeta_network_state_dict"])
-    
-    optimizersf = optim.Adam(sf_network.parameters(), lr=args.lr_sf)
-    # optimizer_w = optim.Adam(task_vector.parameters(), lr=args.lr_w)
-    criterion = nn.MSELoss()
-    sf_target_network.load_state_dict(sf_network.state_dict())
-
-  
-
-   
 
     if args.track:
         wandb.watch(
-            models=[sf_network],
+            models=[q_network],
             log="all",          # can also use "gradients" or "parameters"
             log_freq=args.gradient_freq,     # every 1000 backward() calls
             log_graph=False
         )
 
 
+    obs_shape = env.observation_space.shape[0] + args.n_skills_selected
+    augmented_obs_space = spaces.Box(low=-np.inf, high=np.inf, shape=(obs_shape,), dtype=np.float32)
+
     rb = ReplayBuffer(
         args.buffer_size,
-        env.observation_space,
+        # env.observation_space,
+        augmented_obs_space,
         env.action_space,
         device,
         handle_timeout_termination=False,
     )
+   
 
-
+    obs_dim = np.prod(env.observation_space.shape)
     action_space = env.action_space
     start_time = time.time()
     global_step = 0
     episode = 0
-    # w = discriminator.q.weight[args.skill].detach().to(device)
-    # w = w / (torch.norm(w) + 1e-8)
-    # z = args.skill
+    allowed_skills = [1, 2, 5, 6, 11, 22]
+    model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
+    true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
     while global_step < args.total_timesteps:
         # ALGO LOGIC: put action logic here
+        z_true = np.random.choice(allowed_skills)
+        z_model = true_skill_to_model_idx[z_true]            
         state, _ = env.reset(seed=args.seed + episode)
+        state = concat_state_latent(state, z_model, args.n_skills_selected)
         episode_reward = 0
-        task_regr_loss = None
-        td_loss = None
-
+        logq_zses = []
 
         for steps in range(args.max_timesteps+5):
 
@@ -282,87 +236,75 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if random.random() < epsilon:
                 action = action_space.sample()
             else:
-                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)  # shape (1, state_dim)
-                actions = []
-
-                for a in range(env.action_space.n):
-                    action_onehot = torch.zeros(env.action_space.n, device=device)
-                    action_onehot[a] = 1.0
-                    action_onehot = action_onehot.unsqueeze(0)  # shape (1, action_dim)
-                    w_detached = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
-                    # w_expanded = w_detached.unsqueeze(0).expand(s_env.size(0), -1)  # Shape: [batch_size, sf_dim]
-                    q_val = sf_network(state_tensor, action_onehot, w_detached)  # output shape (1,)
-                    actions.append(q_val.item())  # collect scalar value
-
-                # Choose action with maximum sfᵀw
-                action = int(np.argmax(actions))
+                q_values = q_network(torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device))
+                action = torch.argmax(q_values, dim=1).item()
 
             next_state, reward, termination, truncation, info = env.step(action)
+            next_state_aug = concat_state_latent(next_state, z_model, args.n_skills_selected)
             rb.add(
                 np.array([state]),
-                np.array([next_state]),
+                np.array([next_state_aug]),
                 np.array([action]),
                 np.array([reward]),
                 np.array([termination]),
                 [info]
             )
-    
-            state = next_state
+           
+
+            state = next_state_aug
+            # state = next_state
             episode_reward += reward
             global_step += 1
 
-           
+            # ALGO LOGIC: training.
             if global_step > args.learning_starts:
                 
                 if(global_step % args.train_frequency == 0):
-                    
-                    data = rb.sample(args.batch_size)
-                    w_detached = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
-                    # w_expanded = w_detached.unsqueeze(0).expand(args.batch_size, -1)  # Shape: [batch_size, sf_dim]
-                    td_loss, q_val ,  td_target  = train_sf(sf_network, sf_target_network, data, device, args, global_step , optimizersf, w_detached)
-                    
-                    
-                    # if(global_step % args.train_w_freq == 0):
-                    #     data = rb.sample(args.batch_size_w)
-                    #     task_regr_loss    = train_w(task_vector , phi_net , data , optimizer_w)
+                    data = rb.sample(args.batch_size)           
+                    loss, old_val , intrinsic_rewards , logqz , td_target , bootstrapping = train_dqn_online(q_network, target_network,discriminator , data, device, args, global_step , optimizer , model_idx_to_true_skill)
+            
                     
                 # update target network
-                if global_step % args.sf_target_network_frequency == 0:
-                    for sf_target_network_param, sf_network_param in zip(sf_target_network.parameters(), sf_network.parameters()):
-                        sf_target_network_param.data.copy_(
-                            args.tau * sf_network_param.data + (1.0 - args.tau) * sf_target_network_param.data
+                if global_step % args.target_network_frequency == 0:
+                    for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
+                        target_network_param.data.copy_(
+                            args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                         )
 
 
 
-            # if (global_step > args.learning_starts and global_step % args.step_hist_save == 0):
+            if (global_step > args.learning_starts and global_step % args.model_save== 0):
                 
-                # model_dir = f"runs/checkpoints/diayn/{run_name}"
-                # os.makedirs(model_dir, exist_ok=True)
-                # torch.save({
-                #     "q_network_state_dict": q_network.state_dict(),
-                #     "discriminator_state_dict": discriminator.state_dict(),
-                #     "episode": episode
-                # }, os.path.join(model_dir, f"latest.pth"))       
-                # skill_reward_dict.clear()
+                model_dir = f"runs/checkpoints/qtargetmaml/{run_name}"
+                os.makedirs(model_dir, exist_ok=True)
+                torch.save({
+                    "q_network_state_dict": q_network.state_dict(),
+                    "episode": episode
+                }, os.path.join(model_dir, f"latest.pth"))       
 
-            # if(global_step % 100 == 0):
-            #     print(f"global steps {global_step}")
-            
+
             if termination or truncation:
                 break
+
+        episode+=1
+        if(global_step % 100 == 0):
+            print(f"global steps {global_step}")
+                     
         
-        print(f"Episodic return for episode {episode} -- {episode_reward} ")
-        episode+=1       
-        if(global_step > args.learning_starts and td_loss is not None): 
+        if(global_step > args.learning_starts): 
             wandb.log({
-                "episodic/td_loss": float(td_loss.item()),
-                # "episodic/task_regression_loss": float(task_regr_loss.item()),
-                "episodic/q_values": float(q_val.mean().item()),
-                "episodic/global_steps": float(global_step),
-                "episodic/episodic_return" : float(episode_reward),
+                "episodic/td_loss": float(loss.item()),
+                "episodic/q_values": float(old_val.mean().item()),
+                "episodic/global_steps": float(global_step),  
                 "episodic/td_target": float(td_target.mean().item()),
+                 "episodic/intrinsic_reward": float(intrinsic_rewards.mean().item()),
             } , step = int(episode))
-    
+
+    model_dir = f"runs/checkpoints/qtargetmaml/{run_name}"
+    os.makedirs(model_dir, exist_ok=True)
+    torch.save({
+        "q_network_state_dict": q_network.state_dict(),
+        "episode": episode
+    }, os.path.join(model_dir, f"latest.pth"))       
     env.close()
     writer.close()

@@ -22,10 +22,12 @@ class Args:
     cuda: bool = True
     env_id: str = "LunarLander-v2"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/LunarLander-v2__data_collection_1__2025-04-26_12-49-15__1745651955/maml_training_data.pkl"
-    model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
+    data_path: str = "runs/data/LunarLander-v2__unified_collection_1__2025-05-01_23-50-37__1746123637/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-01_16-14-07__1746096247/latest.pth"
     sf_dim: int = 32
-    n_skills: int = 25
+    n_skills_total: int = 25
+    n_skills_selected: int = 6
     n_skills_epoch: int = 4
     n_actions: int = 4  # Set this according to env
     hidden_dim: int = 120
@@ -34,7 +36,7 @@ class Args:
     num_epochs: int = 500000
     support_size: int = 128
     query_size: int = 64
-    val_skill: int = 2
+    val_skill: int = 5
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
@@ -195,17 +197,19 @@ def train():
 
     with open(args.data_path, "rb") as f:
         state_data = pickle.load(f)
+        np.random.shuffle(state_data)
     state_data = np.array(state_data)
+    np.random.shuffle(state_data)
 
     env = gym.make(args.env_id)
     state_dim = env.observation_space.shape[0]
     
-    discriminator = Discriminator(state_dim, args.n_skills)
-    discriminator.load_state_dict(torch.load(args.model_path)['discriminator_state_dict'])
+    discriminator = Discriminator(state_dim, args.n_skills_total)
+    discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
     discriminator = discriminator.to(device)
 
-    qnet = QNetwork(env , args.n_skills)
-    qnet.load_state_dict(torch.load(args.model_path)['q_network_state_dict'])
+    qnet = QNetwork(env , args.n_skills_selected)
+    qnet.load_state_dict(torch.load(args.qnet_path)['q_network_state_dict'])
     qnet = qnet.to(device)
     
     
@@ -232,6 +236,7 @@ def train():
     num_steps = args.num_steps
     # number of inner loop updates 
     allowed_skills = [1 ,2, 5, 6, 11, 22]
+    true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
     for epoch in range(1, args.num_epochs + 1):
@@ -253,6 +258,8 @@ def train():
             if z == args.val_skill:
                 continue
 
+            z_ind =  true_skill_to_model_idx[z]
+
             w_z = discriminator.q.weight[z].detach().to(device)
             w_z = w_z / (torch.norm(w_z) + 1e-8)
     
@@ -265,8 +272,8 @@ def train():
             a_que = query_actions[query_indices].to(device)
 
 
-            q_sup = get_q_values(qnet, s_sup, a_sup, z, args.n_skills, device)
-            q_que = get_q_values(qnet, s_que, a_que, z, args.n_skills, device)
+            q_sup = get_q_values(qnet, s_sup, a_sup, z_ind, args.n_skills_selected, device)
+            q_que = get_q_values(qnet, s_que, a_que, z_ind, args.n_skills_selected, device)
 
 
             
@@ -317,8 +324,10 @@ def train():
         s_que = query_states[query_indices].to(device)
         a_que = query_actions[query_indices].to(device)
 
-        valq_sup = get_q_values(qnet, s_sup, a_sup, args.val_skill, args.n_skills, device)
-        valq_que = get_q_values(qnet, s_que, a_que, args.val_skill, args.n_skills, device)
+        z_ind =  true_skill_to_model_idx[args.val_skill]
+
+        valq_sup = get_q_values(qnet, s_sup, a_sup, z_ind, args.n_skills_selected, device)
+        valq_que = get_q_values(qnet, s_que, a_que, z_ind, args.n_skills_selected, device)
         weights=list(model.parameters())
 
         val_inner_losses , val_outer_losses, valmetaloss , valq_pred_supp , valq_pred_query = maml_inner_loop(

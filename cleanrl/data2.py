@@ -22,13 +22,13 @@ class Args:
     seed: int = 1
     cuda: bool = True
     env_id: str = "LunarLander-v2"
-    total_timesteps: int = 150000
+    total_timesteps: int = 175000
     max_timesteps: int = 500
     n_skills: int = 25
     model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
     start_e: float = 1
     end_e: float = 0.35
-    exploration_fraction: float = 0.1
+    exploration_fraction: float = 0.07
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     wandb_project_name: str = "data_collection"
     wandb_entity: str = None
@@ -100,6 +100,8 @@ if __name__ == "__main__":
         # Replay-like buffer for φ(s)
         phi_training_data = []
         maml_training_data = []
+        per_skill_states = {z: [] for z in range(args.n_skills)}
+
 
         global_step = 0
         episode = 0
@@ -140,6 +142,7 @@ if __name__ == "__main__":
                     phi_training_data.append((next_obs.copy(),r, w))
                 
                 maml_training_data.append(obs.copy())
+                per_skill_states[z].append(obs.copy())
 
                 obs = next_obs
                 obs_aug = concat_state_latent(obs, z, args.n_skills)
@@ -161,6 +164,16 @@ if __name__ == "__main__":
             pickle.dump(phi_training_data, f)
         with open(os.path.join(model_dir, "maml_training_data.pkl"), "wb") as f:
             pickle.dump(maml_training_data, f)
+
+        # Save per-skill state trajectories
+        per_skill_dir = os.path.join(model_dir, "per_skill_states")
+        os.makedirs(per_skill_dir, exist_ok=True)
+
+        for z, state_list in per_skill_states.items():
+            skill_path = os.path.join(per_skill_dir, f"skill_{z}.pkl")
+            with open(skill_path, "wb") as f:
+                pickle.dump(state_list, f)
+
 
         print(f"Saved φ(s) training data to {os.path.join(model_dir, 'phi_training_data.pkl')}")
         print(f"Saved MAML training data to {os.path.join(model_dir, 'maml_training_data.pkl')}")

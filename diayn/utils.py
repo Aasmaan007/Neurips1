@@ -146,7 +146,7 @@ def train_discriminator(discriminator, data, zs, device , discriminator_opt):
 
     return -disc_loss
 
-def train_sf(sf_network, sf_target_network, data, device, args, global_step, optimizer, z, discriminator, w , q_network):
+def train_sf(sf_network, sf_target_network, data, device, args, global_step, optimizer,  w):
     """
     Train SF Network using Bellman backup and intrinsic rewards based on discriminator.
     Fully batched version (no slow for-loop over actions).
@@ -155,18 +155,11 @@ def train_sf(sf_network, sf_target_network, data, device, args, global_step, opt
     actions = data.actions
     next_states = data.next_observations
     dones = data.dones.flatten()
+    rewards = data.rewards
 
     batch_size = states.shape[0]
 
-    # ----------------------------
-    # Step 1: Compute intrinsic rewards
-    logits = discriminator(next_states[:, :discriminator.input_dim])  # only next state
-    q_zs = F.softmax(logits, dim=-1)
-    q_zs_clamped = torch.clamp(q_zs, min=1e-6)
-    logq_zs = torch.log(q_zs_clamped)
-    logq_z = logq_zs[range(batch_size), z]
-    logpz = torch.tensor(1.0 / args.n_skills + 1e-6).log().to(device)
-    intrinsic_rewards = (logq_z - logpz).detach()
+    
 
     # ----------------------------
     # Step 2: Find best next action using batched evaluation
@@ -191,7 +184,7 @@ def train_sf(sf_network, sf_target_network, data, device, args, global_step, opt
     with torch.no_grad():
         target_q_values = sf_target_network(next_states, next_action_onehot, w).squeeze()
 
-    td_target = intrinsic_rewards + args.gamma * target_q_values * (1 - dones)
+    td_target = rewards + args.gamma * target_q_values * (1 - dones)
 
     # ----------------------------
     # Step 4: Evaluate current Q-values
@@ -200,9 +193,6 @@ def train_sf(sf_network, sf_target_network, data, device, args, global_step, opt
     action_onehot.scatter_(1, action_indices, 1.0)
 
     current_q_values = sf_network(states, action_onehot, w).squeeze()
-    
-
-
     # ----------------------------
     # Step 5: Loss and optimization
     loss = F.mse_loss(current_q_values, td_target)
@@ -211,25 +201,64 @@ def train_sf(sf_network, sf_target_network, data, device, args, global_step, opt
     loss.backward()
     optimizer.step()
 
+
+    return loss, current_q_values, td_target
+
+def train_dqn_online(q_network, target_network, discriminator, data, device, args, global_step, optimizer, model_idx_to_true_skill):
+    states = data.observations
+    next_states = data.next_observations
+
+    # Step 1: Get internal skill idx used for one-hot encoding
+    model_zs = data.observations[:, -args.n_skills_selected:].argmax(dim=1)  # [0–5]
+
+    # Step 2: Map internal skill idx to true skill ID
+    true_zs = torch.tensor([model_idx_to_true_skill[z.item()] for z in model_zs], dtype=torch.long, device=device)
+
+    # Step 3: Compute intrinsic rewards
+    logits = discriminator(next_states[:, :discriminator.input_dim])  # state only
+    q_zs = F.softmax(logits, dim=-1).clamp(min=1e-6)
+    logq_zs = torch.log(q_zs)
+    logq_z = logq_zs[range(args.batch_size), true_zs]
+    logpz = torch.tensor(1.0 / args.n_skills_total + 1e-6).log().to(device)  # Since discriminator trained on 25 skills
+    intrinsic_rewards = (logq_z - logpz).detach()
+
+    # TD Target
     with torch.no_grad():
-        with torch.no_grad():
-            # Step 1: Create skill one-hot
-            batch_size = states.size(0)
-            skill_onehot = torch.zeros(batch_size, args.n_skills, device=device)
-            skill_onehot[:, z] = 1.0
+        next_actions = q_network(next_states).argmax(dim=1, keepdim=True)
+        next_q_values_target = target_network(next_states)
+        target_q_values = next_q_values_target.gather(1, next_actions).squeeze()
+        td_target = intrinsic_rewards + args.gamma * target_q_values * (1 - data.dones.flatten())
 
-            # Step 2: Concatenate state with skill one-hot
-            augmented_states = torch.cat([states, skill_onehot], dim=-1)  # shape (batch_size, state_dim + n_skills)
+    old_val = q_network(states).gather(1, data.actions).squeeze()
+    loss = F.mse_loss(td_target, old_val)
 
-            # Step 3: Pass through Q network
-            qvals = q_network(augmented_states)  # shape (batch_size, n_actions)
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
 
-            # Step 4: Gather Q-values for taken actions
-            action_indices = data.actions.long()
-            target_qval = qvals.gather(1, action_indices).squeeze()
+    return loss, old_val, intrinsic_rewards, logq_z.detach(), td_target, target_q_values
 
-    
-    
-    target_loss =  F.mse_loss(current_q_values, target_qval)
+def phi_only(net, x):
+    x1 = net.activation(net.fc1(x))
+    x2 = net.activation(net.fc2(x1))
+    x_res = x1 + x2
+    x3 = net.activation(net.fc3(x_res))
+    return net.fc4(x3)  # Return φ(s)
 
-    return loss, current_q_values, td_target , target_loss 
+def train_w(task_vector , phi_net , data , optimizer_w):
+    states = data.observations
+    actions = data.actions
+    next_states = data.next_observations
+    rewards = data.rewards
+
+    with torch.no_grad():
+        phi_env = phi_net.forward2(next_states)
+
+    pred_r_env_for_w = task_vector(phi_env)
+    loss_w = F.mse_loss(pred_r_env_for_w, rewards)
+
+    optimizer_w.zero_grad()
+    loss_w.backward()
+    optimizer_w.step()
+
+    return loss_w

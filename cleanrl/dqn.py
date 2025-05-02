@@ -33,7 +33,7 @@ class Args:
     """the entity (team) of wandb's project"""
     capture_video: bool = False
     """whether to capture videos of the agent performances (check out `videos` folder)"""
-    save_model: bool = False
+    save_model: bool = True
     """whether to save model into the `runs/{run_name}` folder"""
     upload_model: bool = False
     """whether to upload the saved model to huggingface"""
@@ -43,13 +43,13 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "LunarLander-v2"
     """the id of the environment"""
-    total_timesteps: int = 5000000
+    total_timesteps: int = 1000000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    buffer_size: int = 10000
+    buffer_size: int = 15000
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -63,7 +63,7 @@ class Args:
     """the starting epsilon for exploration"""
     end_e: float = 0.05
     """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.5
+    exploration_fraction: float = 0.25
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
@@ -228,6 +228,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
                     wandb.log({
                         "stepwise/q_values":float(old_val.mean().item()),
+                        "stepwise/td_loss":float(loss.item()),
                         "stepwise/reward":float(data.rewards.flatten().mean().item()),
 
                     } , step = int(global_step))
@@ -262,7 +263,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
         for idx, episodic_return in enumerate(episodic_returns):
             writer.add_scalar("eval/episodic_return", episodic_return, idx)
-
+            
         if args.upload_model:
             from cleanrl_utils.huggingface import push_to_hub
 
