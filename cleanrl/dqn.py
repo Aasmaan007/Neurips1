@@ -19,7 +19,7 @@ from torch.utils.tensorboard import SummaryWriter
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = 5
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -69,6 +69,8 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
+    model_path: str = "runs/checkpoints/qmaml/LunarLander-v2__MAML_Q__1__2025-05-03_04-27-04__1746226624/latest.pth" 
+    # model_path: str = ""
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -91,9 +93,9 @@ class QNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.single_observation_space.shape).prod(), 128),
+            nn.Linear(np.array(env.single_observation_space.shape).prod(), 120),
             nn.ReLU(),
-            nn.Linear(128, 84),
+            nn.Linear(120, 84),
             nn.ReLU(),
             nn.Linear(84, env.single_action_space.n),
         )
@@ -119,7 +121,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         )
     args = tyro.cli(Args)
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
+    timestamp = int(time.time())
+    run_name = f"{args.env_id}__{args.seed}__{time.strftime('%Y-%m-%d_%H-%M-%S')}__{timestamp}"
     if args.track:
         import wandb
 
@@ -136,7 +139,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         wandb.define_metric("stepwise/*", step_metric="gobal_step")      
         wandb.config.update(vars(args), allow_val_change=True)
 
-    writer = SummaryWriter(f"runs/{run_name}")
+    writer = SummaryWriter(f"runs/mamlqadaption/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
@@ -157,6 +160,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
     q_network = QNetwork(envs).to(device)
+    if(args.model_path!=""):
+        checkpoint2 = torch.load(args.model_path)
+        q_network.load_state_dict(checkpoint2["qmeta_network_state_dict"])
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())

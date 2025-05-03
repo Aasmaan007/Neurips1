@@ -136,3 +136,26 @@ class SFNetwork(nn.Module):
         return torch.einsum("bi,bi->b", task, x)
 
 
+class QNetworkMaml(nn.Module):
+    def __init__(self, env):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Linear(np.array(env.observation_space.shape).prod(), 120),
+            nn.ReLU(),
+            nn.Linear(120, 84),
+            nn.ReLU(),
+            # nn.Linear(84, 84),
+            # nn.ReLU(),
+            nn.Linear(84, env.action_space.n),
+        )
+
+    def forward(self, x):
+        return self.network(x)
+    
+    def argforward(self, state, weights):
+        x = F.linear(state, weights[0], weights[1])
+        x = F.relu(x)
+        x = F.linear(x, weights[2], weights[3])
+        x = F.relu(x)
+        x = F.linear(x, weights[4], weights[5])
+        return x
