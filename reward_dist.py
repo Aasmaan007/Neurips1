@@ -13,7 +13,7 @@ def signal_handler(sig, frame):
 signal.signal(signal.SIGINT, signal_handler)
 
 # === CONFIG: update this if your data path changes ===
-PKL_PATH = "runs/data/LunarLander-v2__unified_collection_1__2025-05-02_02-43-18__1746133998/phi_training_data.pkl"
+PKL_PATH = "runs/data/LunarLander-v2__5__2025-05-04_04-01-39__1746311499/task_regression_data.pkl"
 
 if not os.path.isfile(PKL_PATH):
     print(f"[ERROR] File not found: {PKL_PATH}")
@@ -25,7 +25,7 @@ with open(PKL_PATH, "rb") as f:
     data = pickle.load(f)
 
 # Extract rewards (2nd element of each tuple)
-rewards = np.array([r for (_, r, _) in data], dtype=np.float32)
+rewards = np.array([r for (r) in data], dtype=np.float32)
 
 # === Print summary ===
 print(f"Loaded {len(rewards)} rewards")

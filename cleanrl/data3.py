@@ -29,7 +29,7 @@ class Args:
     exploration_fraction: float = 0.50
     pos_dup_factor: int = 60
     model_path_disc: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    model_path_qnet: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-01_16-14-07__1746096247/latest.pth"
+    model_path_qnet: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
     wandb_project_name: str = "unified_data_collection"
     wandb_entity: str = None
     track: bool = True
@@ -94,6 +94,7 @@ if __name__ == "__main__":
     per_skill_states = {z: [] for z in allowed_skills}
     pos_only_buffer = []
     task_regression_data = []  # (s_next, reward) tuples
+    task_regression_data2 = []
 
     # offline_q_buffer = []  # new buffer to be saved for offline Q training
 
@@ -119,8 +120,14 @@ if __name__ == "__main__":
                     q_vals = q_net(torch.tensor(obs_aug, dtype=torch.float32).unsqueeze(0).to(device))
                     action = torch.argmax(q_vals, dim=1).item()
 
+
             next_obs, reward, terminated, truncated, _ = env.step(action)
             task_regression_data.append((next_obs.copy(), reward))
+            with torch.no_grad():
+                    next_obs_aug = concat_state_latent(next_obs, z_ind, args.n_skills_selected)
+                    q_vals_next = q_net(torch.tensor(next_obs_aug, dtype=torch.float32).unsqueeze(0).to(device))
+                    action_next = torch.argmax(q_vals_next, dim=1).item()
+            task_regression_data2.append((obs.copy() , action , reward , next_obs.copy(), action_next , terminated))
 
             next_obs_tensor = torch.tensor(next_obs, dtype=torch.float32).to(device)
 
@@ -178,7 +185,8 @@ if __name__ == "__main__":
     #     pickle.dump(offline_q_buffer, f)
     with open(os.path.join(model_dir, "task_regression_data.pkl"), "wb") as f:
         pickle.dump(task_regression_data, f)
-
+    with open(os.path.join(model_dir, "task_regression_data2.pkl"), "wb") as f:
+        pickle.dump(task_regression_data2, f)
 
 
 

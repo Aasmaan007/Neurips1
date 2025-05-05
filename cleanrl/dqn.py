@@ -13,13 +13,13 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
-
+import pickle
 
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 5
+    seed: int = 35
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -27,7 +27,7 @@ class Args:
     """if toggled, cuda will be enabled by default"""
     track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "DQN"
+    wandb_project_name: str = "Task2data"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -43,13 +43,13 @@ class Args:
     # Algorithm specific arguments
     env_id: str = "LunarLander-v2"
     """the id of the environment"""
-    total_timesteps: int = 1000000
+    total_timesteps: int = 500000
     """total timesteps of the experiments"""
     learning_rate: float = 2.5e-4
     """the learning rate of the optimizer"""
     num_envs: int = 1
     """the number of parallel game environments"""
-    buffer_size: int = 15000
+    buffer_size: int = 10000
     """the replay memory buffer size"""
     gamma: float = 0.99
     """the discount factor gamma"""
@@ -63,14 +63,15 @@ class Args:
     """the starting epsilon for exploration"""
     end_e: float = 0.05
     """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.25
+    exploration_fraction: float = 0.5
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
     model_path: str = "runs/checkpoints/qmaml/LunarLander-v2__MAML_Q__1__2025-05-03_04-27-04__1746226624/latest.pth" 
-    # model_path: str = ""
+    pretrained: bool = True
+
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -108,6 +109,8 @@ def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
 
+reward_data = []
+
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
@@ -122,7 +125,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     args = tyro.cli(Args)
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
     timestamp = int(time.time())
-    run_name = f"{args.env_id}__{args.seed}__{time.strftime('%Y-%m-%d_%H-%M-%S')}__{timestamp}"
+    run_name = f"{args.env_id}__{args.seed}__{time.strftime('%Y-%m-%d_%H-%M-%S')}__pretrained-{args.pretrained} "
     if args.track:
         import wandb
 
@@ -139,7 +142,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         wandb.define_metric("stepwise/*", step_metric="gobal_step")      
         wandb.config.update(vars(args), allow_val_change=True)
 
-    writer = SummaryWriter(f"runs/mamlqadaption/{run_name}")
+    writer = SummaryWriter(f"runs/mamlqadaption2random/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
@@ -160,7 +163,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
     q_network = QNetwork(envs).to(device)
-    if(args.model_path!=""):
+    if(args.pretrained):
         checkpoint2 = torch.load(args.model_path)
         q_network.load_state_dict(checkpoint2["qmeta_network_state_dict"])
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
@@ -197,6 +200,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
+        reward_data.append((obs.copy() , actions , rewards , next_obs.copy() , terminations))
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -205,6 +209,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
                     writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                     writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                if args.track:
+                        wandb.log({
+                            "stepwise/episodic_return":float(info["episode"]["r"]),
+                        } , step = int(global_step))
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
@@ -232,12 +240,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
 
-                    wandb.log({
-                        "stepwise/q_values":float(old_val.mean().item()),
-                        "stepwise/td_loss":float(loss.item()),
-                        "stepwise/reward":float(data.rewards.flatten().mean().item()),
+                    if args.track:
+                        wandb.log({
+                            "stepwise/q_values":float(old_val.mean().item()),
+                            "stepwise/td_loss":float(loss.item()),
+                            # "stepwise/reward":float(data.rewards.flatten().mean().item()),
 
-                    } , step = int(global_step))
+                        } , step = int(global_step))
 
                 # optimize the model
                 optimizer.zero_grad()
@@ -250,6 +259,12 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     target_network_param.data.copy_(
                         args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
+    # print(f"Saving reward {len(reward_data)} entries")
+    # model_dir = f"runs/data/{run_name}"
+    # os.makedirs(model_dir, exist_ok=True)
+
+    # with open(os.path.join(model_dir, "task_regression_data.pkl"), "wb") as f:
+    #     pickle.dump(reward_data, f)
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"

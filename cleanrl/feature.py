@@ -33,7 +33,7 @@ class Args:
     track: bool = True
     gradient_freq: int = 1000
     workers: int = 4
-    dropout: float = 0.10
+    dropout: float = 0.15
 
 
 def set_seed(seed: int):

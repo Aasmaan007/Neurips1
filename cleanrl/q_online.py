@@ -279,6 +279,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 os.makedirs(model_dir, exist_ok=True)
                 torch.save({
                     "q_network_state_dict": q_network.state_dict(),
+                    "disc_state_dict": discriminator.state_dict(),
                     "episode": episode
                 }, os.path.join(model_dir, f"latest.pth"))       
 
@@ -304,6 +305,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     os.makedirs(model_dir, exist_ok=True)
     torch.save({
         "q_network_state_dict": q_network.state_dict(),
+        "disc_state_dict": discriminator.state_dict(),
         "episode": episode
     }, os.path.join(model_dir, f"latest.pth"))       
     env.close()

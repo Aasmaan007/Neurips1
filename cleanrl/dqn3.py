@@ -54,7 +54,7 @@ class Args:
     max_timesteps: int = 1000
     """timesteps per episode"""
   
-    lr_sf: float = 1e-4
+    lr_sf: float = 2.5e-4
     """the learning rate of the sfnet optimizer"""
 
     lr_w: float = 2.5e-4
@@ -79,7 +79,7 @@ class Args:
     """the discount factor gamma"""
     tau: float = 1
     """the target network update rate"""
-    sf_target_network_frequency: int = 1000
+    sf_target_network_frequency: int = 750
     """the timesteps it takes to update the target network"""
     batch_size: int = 128
     """the batch size of sample from the reply memory"""
@@ -104,9 +104,9 @@ class Args:
     train_w_freq: int = 30
     """frq of training task vector"""
 
-    model_path1: str = "runs/checkpoints/env_phi_task/LunarLander-v2__joint_phi_task__1__2025-05-02_23-50-33/latest.pth"
-    model_path2: str = "runs/checkpoints/maml/LunarLander-v2__MAML_SF__1__2025-05-02_00-50-05__1746127205/latest.pth" 
-    # model_path2: str = ""
+    model_path1: str = "runs/checkpoints/env_phi_task/LunarLander-v2__joint_phi_task__1__2025-05-04_05-35-26/latest.pth"
+    # model_path2: str = "runs/checkpoints/maml/LunarLander-v2__MAML_SF__1__2025-05-02_00-50-05__1746127205/latest.pth" 
+    model_path2: str = ""
 
     
     dropout:float = 0.1
@@ -226,7 +226,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     
     checkpoint1 = torch.load(args.model_path1)
     task_vector.load_state_dict(checkpoint1["task_vector"])
-    phi_net.load_state_dict(checkpoint1["phi_net"])
+    # phi_net.load_state_dict(checkpoint1["phi_net"])
     
     if(args.model_path2!=""):
         checkpoint2 = torch.load(args.model_path2)

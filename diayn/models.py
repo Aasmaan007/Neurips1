@@ -134,7 +134,16 @@ class SFNetwork(nn.Module):
         # broadcast task to batch:
         task = task.unsqueeze(0).expand(x.size(0), -1)
         return torch.einsum("bi,bi->b", task, x)
-
+    
+    def sf_vector(self, state, action):
+        """
+        Computes raw SF vector from (state, action) pair without applying task weights.
+        Used for computing phi(s') using Bellman residual.
+        """
+        x = torch.cat([state, action], dim=-1)
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        return self.l3(x)
 
 class QNetworkMaml(nn.Module):
     def __init__(self, env):
