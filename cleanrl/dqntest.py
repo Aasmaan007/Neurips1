@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    seed: int = 81
+    seed: int = 35
     torch_deterministic: bool = True
     cuda: bool = True
     track: bool = True
@@ -28,7 +28,7 @@ class Args:
     save_model: bool = False
     upload_model: bool = False
     hf_entity: str = ""
-    env_id: str = "LunarLander-v2"
+    env_id: str = "MountainCar-v0"
     total_timesteps: int = 500000
     learning_rate: float = 2.5e-4
     num_envs: int = 1
@@ -42,10 +42,10 @@ class Args:
     exploration_fraction: float = 0.5
     learning_starts: int = 10000
     train_frequency: int = 10
-    w_path: str  = "runs/checkpoints/env_phi_task/LunarLander-v2__joint_phi_task__1__2025-05-05_01-37-20/latest.pth"
-    model_path = "runs/checkpoints/maml/LunarLander-v2__MAML_SF__1__2025-05-05_00-41-00__1746385860/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/MountainCar-v0__joint_phi_task__1__2025-05-13_01-35-43/latest.pth"
+    model_path = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth"
     w_random: bool = False
-    pretrained: bool = True
+    pretrained: bool = False
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():

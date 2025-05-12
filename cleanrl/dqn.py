@@ -14,12 +14,14 @@ import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
 import pickle
+from gymnasium.wrappers import TimeLimit
+from gymnasium.wrappers.time_limit import TimeLimit as GymTimeLimit
 
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 35
+    seed: int = 1
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -41,7 +43,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "LunarLander-v2"
+    env_id: str = "MountainCar-v0"
     """the id of the environment"""
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -69,18 +71,25 @@ class Args:
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
-    model_path: str = "runs/checkpoints/qmaml/LunarLander-v2__MAML_Q__1__2025-05-03_04-27-04__1746226624/latest.pth" 
-    pretrained: bool = True
+    max_timesteps: int = 1000
+    model_path: str = "runs/checkpoints/qmaml/MountainCar-v0__MAML_Q__1__2025-05-12_19-36-06__1747058766/latest.pth" 
+    pretrained: bool = False
 
 
 
-def make_env(env_id, seed, idx, capture_video, run_name):
+def make_env(env_id, seed, idx, capture_video, run_name, max_timesteps):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
             env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id)
+
+        #if isinstance(env, GymTimeLimit):
+        #    env = env.env  # unwrap the TimeLimit wrapper
+
+
+        env = TimeLimit(env, max_timesteps)
         env = gym.wrappers.RecordEpisodeStatistics(env)
         env.action_space.seed(seed)
 
@@ -158,7 +167,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     # env setup
     envs = gym.vector.SyncVectorEnv(
-        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name) for i in range(args.num_envs)]
+        [make_env(args.env_id, args.seed + i, i, args.capture_video, run_name, args.max_timesteps) for i in range(args.num_envs)]
     )
     assert isinstance(envs.single_action_space, gym.spaces.Discrete), "only discrete action space is supported"
 
@@ -259,12 +268,12 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     target_network_param.data.copy_(
                         args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
-    # print(f"Saving reward {len(reward_data)} entries")
-    # model_dir = f"runs/data/{run_name}"
-    # os.makedirs(model_dir, exist_ok=True)
+    #print(f"Saving reward {len(reward_data)} entries")
+    #model_dir = f"runs/data/{run_name}"
+    #os.makedirs(model_dir, exist_ok=True)
 
-    # with open(os.path.join(model_dir, "task_regression_data.pkl"), "wb") as f:
-    #     pickle.dump(reward_data, f)
+    #with open(os.path.join(model_dir, "task_regression_data.pkl"), "wb") as f:
+    #    pickle.dump(reward_data, f)
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"

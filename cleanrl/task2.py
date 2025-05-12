@@ -15,12 +15,12 @@ import tyro
 @dataclass
 class Args:
     exp_name: str = "joint_phi_task"
-    env_data_path: str = "runs/data/LunarLander-v2__1__2025-05-05_01-18-23__pretrained-False /task_regression_data.pkl"
-    env_id: str = "LunarLander-v2"
+    env_data_path: str = "runs/data/MountainCar-v0__1__2025-05-13_01-18-20__pretrained-False /task_regression_data.pkl"
+    env_id: str = "MountainCar-v0"
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
-    total_epochs: int = 30
+    total_epochs: int = 40
     learning_rate_phi: float = 2.5e-4
     learning_rate_w: float = 6e-4
     task_lag: int = 1
@@ -31,8 +31,8 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/LunarLander-v2__MAML_SF__1__2025-05-05_00-41-00__1746385860/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
     n_skills_selected: int = 6

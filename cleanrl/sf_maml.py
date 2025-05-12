@@ -20,16 +20,16 @@ from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "LunarLander-v2"
+    env_id: str = "MountainCar-v0"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/LunarLander-v2__unified_collection_1__2025-05-05_00-18-05__1746384485/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
+    data_path: str = "runs/data/MountainCar-v0__unified_collection_1__2025-05-12_19-06-34__1747056994/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
     n_skills_epoch: int = 4
-    n_actions: int = 4  # Set this according to env
+    n_actions: int = 3  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-3
     outer_lr: float = 2.5e-3
