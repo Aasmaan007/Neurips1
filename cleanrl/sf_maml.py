@@ -20,16 +20,16 @@ from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "MountainCar-v0"
+    env_id: str = "CartPole-v1"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/MountainCar-v0__unified_collection_1__2025-05-12_19-06-34__1747056994/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    data_path: str = "runs/data/CartPole-v1__unified_collection_1__2025-05-13_20-30-59__1747148459/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-13_19-30-01__1747144801/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-13_19-30-01__1747144801/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
     n_skills_epoch: int = 4
-    n_actions: int = 3  # Set this according to env
+    n_actions: int = 2  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-3
     outer_lr: float = 2.5e-3
@@ -377,15 +377,16 @@ def train():
                 wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
             print(f"Epoch number {epoch} completed")
 
-            if(epoch % 50000 == 0):
-                model_dir = f"runs/checkpoints/maml/{run_name}"
+            if epoch in [250,500,1000,1200,1500,2000.2600,3200,3700,4500,5000,5600,6000,6400,7000,7500,8200,8900,9700,11000,11800,12500,13000,
+                         14000,14600,15000,16000,17200,18000,18500,19000,20000,20500,21000,21500,22000,23000,23500,24000]:
+                model_dir = f"runs/checkpoints/maml/{epoch}/{run_name}"
                 os.makedirs(model_dir, exist_ok=True)
                 torch.save({
                         "sfmeta_network_state_dict": model.state_dict(),
                     }, os.path.join(model_dir, f"latest.pth"))
 
 
-    model_dir = f"runs/checkpoints/maml/{run_name}"
+    model_dir = f"runs/checkpoints/maml/{epoch}/{run_name}"
     os.makedirs(model_dir, exist_ok=True)
     torch.save({
             "sfmeta_network_state_dict": model.state_dict(),

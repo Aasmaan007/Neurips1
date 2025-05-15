@@ -43,7 +43,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "MountainCar-v0"
+    env_id: str = "CartPole-v1"
     """the id of the environment"""
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -72,7 +72,7 @@ class Args:
     train_frequency: int = 10
     """the frequency of training"""
     max_timesteps: int = 1000
-    model_path: str = "runs/checkpoints/qmaml/MountainCar-v0__MAML_Q__1__2025-05-12_19-36-06__1747058766/latest.pth" 
+    model_path: str = "runs/checkpoints/qmaml/CartPole-v1__MAML_Q__1__2025-05-13_21-05-54__1747150554/latest.pth" 
     pretrained: bool = False
 
 

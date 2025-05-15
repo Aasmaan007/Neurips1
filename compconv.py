@@ -7,14 +7,14 @@ from dataclasses import dataclass
 
 @dataclass
 class Args:
-    sf_dir: str = "mountaincar_runsdata_sf"
-    q_dir: str = "mountaincar_runsdata_q"
-    reward_threshold: float = -150
-    patience: int = 10
+    sf_dir: str = "cartpole_runsdata_sf"
+    q_dir: str = "cartpole_runsdata_q"
+    reward_threshold: float = 500 
+    patience: int = 17
 
 # === SF EXTRACT ===
 def extract_sf_seed_pretrained(filename):
-    match = re.search(r"v0__([0-9]+)__wrandom-[^_]+__pretrained-(True|False)", filename)
+    match = re.search(r"v1__([0-9]+)__wrandom-[^_]+__pretrained-(True|False)", filename)
     if not match:
         raise ValueError(f"Invalid filename format: {filename}")
     return int(match.group(1)), match.group(2) == "True"

@@ -7,13 +7,13 @@ from dataclasses import dataclass
 
 @dataclass
 class Args:
-    data_dir: str = "mountaincar_runsdata_sf"
-    reward_threshold: float = -150
-    patience: int = 10
+    data_dir: str = "cartpole_runsdata_sf"
+    reward_threshold: float = 500
+    patience: int = 17
 
 def extract_seed_pretrained(filename):
     # Matches: LunarLander-v2__35__wrandom-False__pretrained-True__2025-05-05_02-37-10.csv
-    match = re.search(r"v0__([0-9]+)__wrandom-[^_]+__pretrained-(True|False)", filename)
+    match = re.search(r"v1__([0-9]+)__wrandom-[^_]+__pretrained-(True|False)", filename)
     if not match:
         raise ValueError(f"Invalid filename format: {filename}")
     return int(match.group(1)), match.group(2) == "True"

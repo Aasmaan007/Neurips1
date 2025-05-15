@@ -20,16 +20,16 @@ from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork , QNetworkM
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "MountainCar-v0"
+    env_id: str = "CartPole-v1"
     exp_name: str = "MAML_Q"
-    data_path: str = "runs/data/MountainCar-v0__unified_collection_1__2025-05-12_19-06-34__1747056994/maml_training_data.pkl"
+    data_path: str = "runs/data/CartPole-v1__unified_collection_1__2025-05-13_20-30-59__1747148459/maml_training_data.pkl"
     disc_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-13_19-30-01__1747144801/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
     n_skills_epoch: int = 4
-    n_actions: int = 3  # Set this according to env
+    n_actions: int = 2  # Set this according to env
     hidden_dim: int = 120
     inner_lr: float = 1e-3
     outer_lr: float = 2.5e-3
