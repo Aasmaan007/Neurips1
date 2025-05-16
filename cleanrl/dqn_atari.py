@@ -32,9 +32,9 @@ class Args:
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
     cuda: bool = True
     """if toggled, cuda will be enabled by default"""
-    track: bool = False
+    track: bool = True
     """if toggled, this experiment will be tracked with Weights and Biases"""
-    wandb_project_name: str = "cleanRL"
+    wandb_project_name: str = "AtariDqn"
     """the wandb's project name"""
     wandb_entity: str = None
     """the entity (team) of wandb's project"""
@@ -155,6 +155,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
             monitor_gym=True,
             save_code=True,
         )
+        wandb.define_metric("global_step")
+        wandb.define_metric("stepwise/*", step_metric="gobal_step")      
+        wandb.config.update(vars(args), allow_val_change=True)
+
     writer = SummaryWriter(f"runs/{run_name}")
     writer.add_text(
         "hyperparameters",
@@ -211,6 +215,10 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
                     writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
                     writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
+                    if args.track:
+                        wandb.log({
+                            "stepwise/episodic_return":float(info["episode"]["r"]),
+                        } , step = int(global_step))
 
         # TRY NOT TO MODIFY: save data to reply buffer; handle `final_observation`
         real_next_obs = next_obs.copy()
@@ -237,6 +245,14 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     writer.add_scalar("losses/q_values", old_val.mean().item(), global_step)
                     print("SPS:", int(global_step / (time.time() - start_time)))
                     writer.add_scalar("charts/SPS", int(global_step / (time.time() - start_time)), global_step)
+
+                    if args.track:
+                        wandb.log({
+                            "stepwise/q_values":float(old_val.mean().item()),
+                            "stepwise/td_loss":float(loss.item()),
+                            # "stepwise/reward":float(data.rewards.flatten().mean().item()),
+
+                    } , step = int(global_step))
 
                 # optimize the model
                 optimizer.zero_grad()
