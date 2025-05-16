@@ -12,10 +12,10 @@ def init_weight(layer, initializer="he normal"):
     layer.bias.data.zero_()
 
 class Discriminator(nn.Module, ABC):
-    def __init__(self, n_states, n_skills):
+    def __init__(self, n_states, n_skills , q_feature):
         super(Discriminator, self).__init__()
-        self.input_dim = n_states
-        self.hidden1 = nn.Linear(n_states, 120)
+        self.q_feature = q_feature
+        self.hidden1 = nn.Linear(512, 120)
         init_weight(self.hidden1)
 
         self.hidden2 = nn.Linear(120, 32)
@@ -25,26 +25,29 @@ class Discriminator(nn.Module, ABC):
         init_weight(self.q, initializer="xavier uniform")
 
     def forward(self, states):
+
         x = F.relu(self.hidden1(states))
         x = F.relu(self.hidden2(x))
         logits = self.q(x)
         return logits
 
 class QNetwork(nn.Module):
-    def __init__(self, env , nskills):
-        super().__init__()
+    def __init__(self, q_feature, n_skills, n_actions):
+        super(QNetwork, self).__init__()
+        self.q_feature = q_feature
+
         self.network = nn.Sequential(
-            nn.Linear(np.array(env.observation_space.shape).prod()+nskills, 120),
+            nn.Linear(512 + n_skills, 120),
             nn.ReLU(),
             nn.Linear(120, 84),
             nn.ReLU(),
-            # nn.Linear(84, 84),
-            # nn.ReLU(),
-            nn.Linear(84, env.action_space.n),
+            nn.Linear(84, n_actions),
         )
 
-    def forward(self, x):
-        return self.network(x)
+    def forward(self, state):
+        # Forward pass
+        return self.network(state)
+
 
 import torch
 import torch.nn as nn

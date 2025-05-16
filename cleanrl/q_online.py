@@ -18,7 +18,13 @@ from torch.utils.tensorboard import SummaryWriter
 from cleanrl.diayn.models import Discriminator, QNetwork
 from cleanrl.diayn.utils import  train_dqn_online
 from gymnasium import spaces
-from gymnasium.wrappers import TimeLimit
+from stable_baselines3.common.atari_wrappers import (
+    ClipRewardEnv,
+    EpisodicLifeEnv,
+    FireResetEnv,
+    MaxAndSkipEnv,
+    NoopResetEnv,
+)
 
 
 from collections import defaultdict
@@ -46,7 +52,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "LunarLander-v2"
+    env_id: str = "BreakoutNoFrameskip-v4"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
@@ -80,7 +86,7 @@ class Args:
     """the ending epsilon for exploration"""
     exploration_fraction: float = 0.2
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
-    learning_starts: int = 10000
+    learning_starts: int = 80000
     """timestep to start learning"""
     n_skills_selected: int = 6  # mapped skills: 1 → 0, 2 → 1, etc.
     """ number of skills """
@@ -98,6 +104,8 @@ class Args:
     '''gradient clipping '''
     ddqn: bool = True
     '''whether to use ddqn'''
+    qmodelpath: str = "runs/checkpoints/atari/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pt"
+
 
 
 def concat_state_latent(s, z, n_skills):
@@ -106,22 +114,63 @@ def concat_state_latent(s, z, n_skills):
     return np.concatenate([s, z_one_hot], axis=-1)
 
 
-def make_env(env_id, seed, idx, capture_video, run_name , max_timesteps):
+def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
         if capture_video and idx == 0:
             env = gym.make(env_id, render_mode="rgb_array")
-            env = TimeLimit(env, max_timesteps)
-            env = gym.wrappers.RecordVideo(
-                env,
-                f"videos/{run_name}",
-            )
+            env = gym.wrappers.RecordVideo(env, f"videos/{run_name}")
         else:
             env = gym.make(env_id)
-            env = TimeLimit(env, max_timesteps)
         env = gym.wrappers.RecordEpisodeStatistics(env)
+
+        env = NoopResetEnv(env, noop_max=30)
+        env = MaxAndSkipEnv(env, skip=4)
+        env = EpisodicLifeEnv(env)
+        if "FIRE" in env.unwrapped.get_action_meanings():
+            env = FireResetEnv(env)
+        env = ClipRewardEnv(env)
+        env = gym.wrappers.ResizeObservation(env, (84, 84))
+        env = gym.wrappers.GrayScaleObservation(env)
+        env = gym.wrappers.FrameStack(env, 4)
+
         env.action_space.seed(seed)
         return env
+
     return thunk
+
+class QFeature(nn.Module):
+    def __init__(self, env):
+        super().__init__()
+        self.network = nn.Sequential(
+            nn.Conv2d(4, 32, 8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3, stride=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(3136, 512),
+            nn.ReLU(),
+            nn.Linear(512, env.single_action_space.n),
+        )
+
+    def forward(self, x):
+        return self.network(x / 255.0)
+     
+    def forward2(self, x):
+        self.network2 = nn.Sequential(
+            nn.Conv2d(4, 32, 8, stride=4),
+            nn.ReLU(),
+            nn.Conv2d(32, 64, 4, stride=2),
+            nn.ReLU(),
+            nn.Conv2d(64, 64, 3, stride=1),
+            nn.ReLU(),
+            nn.Flatten(),
+            nn.Linear(3136, 512),
+            nn.ReLU(),
+        )
+        return self.network2(x / 255.0)
+
 
 
 
@@ -187,6 +236,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     target_network.load_state_dict(q_network.state_dict())
 
     discriminator = Discriminator(env.observation_space.shape[0], args.n_skills_total).to(device)
+
+    q_feature = QFeature(env).to(device)
+    checkpoint_qnet = torch.load(args.model_path)
+    q_feature.load_state_dict(checkpoint_qnet["q_network"])
     
 
     if args.track:
@@ -224,9 +277,11 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     while global_step < args.total_timesteps:
         # ALGO LOGIC: put action logic here
         z_true = np.random.choice(allowed_skills)
-        z_model = true_skill_to_model_idx[z_true]            
+        z_model = true_skill_to_model_idx[z_true]   
+        skill_one_hot = np.zeros(args.n_skills_selected, dtype=np.float32)
+        skill_one_hot[z_model] = 1.0         
         state, _ = env.reset(seed=args.seed + episode)
-        state = concat_state_latent(state, z_model, args.n_skills_selected)
+        # state = concat_state_latent(state, z_model, args.n_skills_selected)
         episode_reward = 0
         logq_zses = []
 
@@ -236,20 +291,26 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if random.random() < epsilon:
                 action = action_space.sample()
             else:
-                q_values = q_network(torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device))
+                # Convert state and skill_one_hot to tensors
+                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
+                skill_tensor = torch.tensor(skill_one_hot, dtype=torch.float32).unsqueeze(0).to(device)
+
+                # Pass both state and skill to QNetwork
+                q_values = q_network(state_tensor, skill_tensor)
                 action = torch.argmax(q_values, dim=1).item()
 
             next_state, reward, termination, truncation, info = env.step(action)
             next_state_aug = concat_state_latent(next_state, z_model, args.n_skills_selected)
             rb.add(
                 np.array([state]),
-                np.array([next_state_aug]),
+                np.array([next_state]),
+                np.array([skill_one_hot]),
                 np.array([action]),
                 np.array([reward]),
                 np.array([termination]),
                 [info]
             )
-           
+
 
             state = next_state_aug
             # state = next_state

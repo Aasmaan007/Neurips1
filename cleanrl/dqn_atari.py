@@ -122,6 +122,7 @@ class QNetwork(nn.Module):
 
     def forward(self, x):
         return self.network(x / 255.0)
+    
 
 
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
@@ -248,6 +249,12 @@ poetry run pip install "stable_baselines3==2.0.0a1" "gymnasium[atari,accept-rom-
                     target_network_param.data.copy_(
                         args.tau * q_network_param.data + (1.0 - args.tau) * target_network_param.data
                     )
+
+    model_dir = f"runs/checkpoints/atari/{run_name}"
+    os.makedirs(model_dir, exist_ok=True)
+    torch.save({
+        "q_network": q_network.state_dict(),
+    }, os.path.join(model_dir, f"latest.pth"))           
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"

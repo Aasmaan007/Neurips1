@@ -207,15 +207,14 @@ def train_sf(sf_network, sf_target_network, data, device, args, global_step, opt
 def train_dqn_online(q_network, target_network, discriminator, data, device, args, global_step, optimizer, model_idx_to_true_skill):
     states = data.observations
     next_states = data.next_observations
+    skills = data.skill
 
-    # Step 1: Get internal skill idx used for one-hot encoding
-    model_zs = data.observations[:, -args.n_skills_selected:].argmax(dim=1)  # [0–5]
-
+    model_zs = skills.argmax(dim=1)
     # Step 2: Map internal skill idx to true skill ID
     true_zs = torch.tensor([model_idx_to_true_skill[z.item()] for z in model_zs], dtype=torch.long, device=device)
 
     # Step 3: Compute intrinsic rewards
-    logits = discriminator(next_states[:, :discriminator.input_dim])  # state only
+    logits = discriminator(next_states)  # state only
     q_zs = F.softmax(logits, dim=-1).clamp(min=1e-6)
     logq_zs = torch.log(q_zs)
     logq_z = logq_zs[range(args.batch_size), true_zs]
@@ -224,12 +223,12 @@ def train_dqn_online(q_network, target_network, discriminator, data, device, arg
 
     # TD Target
     with torch.no_grad():
-        next_actions = q_network(next_states).argmax(dim=1, keepdim=True)
-        next_q_values_target = target_network(next_states)
+        next_actions = q_network(next_states , skills).argmax(dim=1, keepdim=True)
+        next_q_values_target = target_network(next_states ,skills)
         target_q_values = next_q_values_target.gather(1, next_actions).squeeze()
         td_target = intrinsic_rewards + args.gamma * target_q_values * (1 - data.dones.flatten())
 
-    old_val = q_network(states).gather(1, data.actions).squeeze()
+    old_val = q_network(states , skills).gather(1, data.actions).squeeze()
     loss = F.mse_loss(td_target, old_val)
 
     optimizer.zero_grad()
