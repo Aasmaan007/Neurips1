@@ -21,7 +21,7 @@ from gymnasium.wrappers.time_limit import TimeLimit as GymTimeLimit
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = 81
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -43,7 +43,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "MountainCar-v0"
+    env_id: str = "Acrobot-v1"
     """the id of the environment"""
     total_timesteps: int = 500000
     """total timesteps of the experiments"""
@@ -72,7 +72,7 @@ class Args:
     train_frequency: int = 10
     """the frequency of training"""
     max_timesteps: int = 1000
-    model_path: str = "runs/checkpoints/qmaml/MountainCar-v0__MAML_Q__1__2025-05-12_19-36-06__1747058766/latest.pth" 
+    model_path: str = "runs/checkpoints/qmaml/Acrobot-v1__MAML_Q__1__2025-05-17_19-51-41__1747491701/latest.pth" 
     pretrained: bool = False
 
 

@@ -46,7 +46,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "MountainCar-v0"
+    env_id: str = "Acrobot-v1"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
@@ -82,7 +82,7 @@ class Args:
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
-    n_skills_selected: int = 6  # mapped skills: 1 → 0, 2 → 1, etc.
+    n_skills_selected: int = 21  # mapped skills: 1 → 0, 2 → 1, etc.
     """ number of skills """
     n_skills_total: int = 25  # mapped skills: 1 → 0, 2 → 1, etc.
     """ number of skills """

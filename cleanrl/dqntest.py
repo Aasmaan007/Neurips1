@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    seed: int = 35
+    seed: int = 81
     torch_deterministic: bool = True
     cuda: bool = True
     track: bool = True
@@ -28,7 +28,7 @@ class Args:
     save_model: bool = False
     upload_model: bool = False
     hf_entity: str = ""
-    env_id: str = "MountainCar-v0"
+    env_id: str = "Acrobot-v1"
     total_timesteps: int = 500000
     learning_rate: float = 2.5e-4
     num_envs: int = 1
@@ -42,10 +42,13 @@ class Args:
     exploration_fraction: float = 0.5
     learning_starts: int = 10000
     train_frequency: int = 10
-    w_path: str  = "runs/checkpoints/env_phi_task/MountainCar-v0__joint_phi_task__1__2025-05-13_01-35-43/latest.pth"
-    model_path = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/Acrobot-v1__joint_phi_task__1__2025-05-17_23-56-00/latest.pth"
+
+    epoch_no_testing: str = "500"
+
+    model_path = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-17_17-16-23__1747482383/"+epoch_no_testing+"/latest.pth"
     w_random: bool = False
-    pretrained: bool = False
+    pretrained: bool = True
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -96,7 +99,7 @@ if __name__ == "__main__":
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
     # run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     timestamp = int(time.time())
-    run_name = f"{args.env_id}__{args.seed}__wrandom-{args.w_random}__pretrained-{args.pretrained}__{time.strftime('%Y-%m-%d_%H-%M-%S')}"
+    run_name = f"{args.env_id}__{args.seed}__wrandom-{args.w_random}__pretrained-{args.pretrained}__{args.epoch_no_testing}__{time.strftime('%Y-%m-%d_%H-%M-%S')}"
 
     if args.track:
         import wandb

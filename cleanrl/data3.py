@@ -18,18 +18,18 @@ from cleanrl.diayn.models import Discriminator, QNetwork
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "MountainCar-v0"
+    env_id: str = "Acrobot-v1"
     max_timesteps: int = 1000
     total_timesteps: int = 1000000
     # skill_timesteps: int = 392157
     n_skills_total: int = 25
-    n_skills_selected: int = 6
+    n_skills_selected: int = 13
     start_e: float = 1
     end_e: float = 0.05
     exploration_fraction: float = 0.50
     pos_dup_factor: int = 60
     model_path_disc: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    model_path_qnet: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    model_path_qnet: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-17_02-27-39__1747429059/latest.pth"
     wandb_project_name: str = "unified_data_collection"
     wandb_entity: str = None
     track: bool = True

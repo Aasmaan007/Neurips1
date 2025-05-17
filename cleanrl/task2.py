@@ -15,12 +15,12 @@ import tyro
 @dataclass
 class Args:
     exp_name: str = "joint_phi_task"
-    env_data_path: str = "runs/data/MountainCar-v0__1__2025-05-13_01-18-20__pretrained-False /task_regression_data.pkl"
-    env_id: str = "MountainCar-v0"
+    env_data_path: str = "runs/data/Acrobot-v1__1__2025-05-16_07-54-59__pretrained-False /task_regression_data.pkl"
+    env_id: str = "Acrobot-v1"
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
-    total_epochs: int = 40
+    total_epochs: int = 3
     learning_rate_phi: float = 2.5e-4
     learning_rate_w: float = 6e-4
     task_lag: int = 1
@@ -31,11 +31,11 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-17_17-16-23__1747482383/500/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-17_02-28-14__1747429094/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
-    n_skills_selected: int = 6
+    n_skills_selected: int = 21
 
 
 class TaskVector(nn.Module):
@@ -165,7 +165,7 @@ def train():
         if args.track:
             wandb.log({"epochs/env_mse_loss": avg_loss_lunar}, step=epoch)
 
-        if epoch % 5 == 0:
+        if epoch % 1 == 0:
             save_path = f"runs/checkpoints/env_phi_task/{run_name}"
             os.makedirs(save_path, exist_ok=True)
             torch.save({"task_vector": task_vector.state_dict()}, os.path.join(save_path, "latest.pth"))
