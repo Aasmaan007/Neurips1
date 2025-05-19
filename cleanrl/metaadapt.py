@@ -14,14 +14,14 @@ import tyro
 import gymnasium as gym
 import wandb
 
-from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork , QNetworkMaml
+from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork
 
 @dataclass
 class Args:
     seed: int = 1
     cuda: bool = True
     env_id: str = "CartPole-v1"
-    exp_name: str = "MAML_Q"
+    exp_name: str = "MAML_SF"
     data_path: str = "runs/data/CartPole-v1__unified_collection_1__2025-05-18_16-13-47__1747565027/maml_training_data.pkl"
     disc_path: str = "runs/checkpoints/diayn/CartPole-v1__diayn__1__2025-05-18_13-19-37__1747554577/latest.pth"
     qnet_path: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-18_15-13-17__1747561397/latest.pth"
@@ -37,9 +37,9 @@ class Args:
     support_size: int = 128
     query_size: int = 64
     val_skill: int = 5
-    wandb_project_name: str = "MAML_Q"
+    wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
-    track: bool = True
+    track: bool = False
     multi_step_loss: bool = False
     ''' toggle multi-step outer loss'''
     use_fixed_outer_loss_weights: bool = True
@@ -55,12 +55,22 @@ class Args:
     '''parameter clip '''
     max_norm: float = 5.0
     '''gradient clipping'''
+    model_path: str = "runs/checkpoints/maml//CartPole-v1__MAML_SF__1__2025-05-18_19-04-30__1747575270/latest.pth"
 
 def set_seed(seed):
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
+
+def load_fast_weights(model, fast_weights):
+    """
+    Load the fast weights into a model instance.
+    """
+    state_dict = model.state_dict()
+    fast_weights_dict = {k: w for k, w in zip(state_dict.keys(), fast_weights)}
+    state_dict.update(fast_weights_dict)
+    model.load_state_dict(state_dict)
 
 def get_all_pairs(states, n_actions):
     all_states, all_actions = [], []
@@ -118,10 +128,7 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
     q_pred_query = []
 
     for step in range(num_steps):
-        q_values_sup = model.argforward(s_sup, fast_weights)  # shape: [B, num_actions]
-        action_indices_sup = torch.argmax(a_sup, dim=1).unsqueeze(1)  # shape: [B, 1]
-        q_pred_sup = q_values_sup.gather(1, action_indices_sup).squeeze(1)  # shape: [B]
-
+        q_pred_sup = model.argforward(s_sup, a_sup, fast_weights, w_z)
         q_pred_supp.append(q_pred_sup.mean().item())
         innerloss = criterion(q_sup, q_pred_sup)
         step_inner_losses.append(innerloss)
@@ -144,10 +151,7 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
         else :
             fast_weights = [w - inner_lr * g for w, g in zip(fast_weights, grads)]
 
-        q_values_que = model.argforward(s_que, fast_weights)
-        action_indices_que = torch.argmax(a_que, dim=1).unsqueeze(1)
-        q_pred_que = q_values_que.gather(1, action_indices_que).squeeze(1)
-
+        q_pred_que = model.argforward(s_que, a_que, fast_weights, w_z)
         q_pred_query.append(q_pred_que.mean().item())
         outer_loss = criterion(q_que, q_pred_que)
         step_outer_losses.append(outer_loss)
@@ -159,7 +163,7 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
 
     # q_pred_sup_sum = q_pred_sup_sum / num_steps
 
-    return step_inner_losses, step_outer_losses, weighted_outer_loss , q_pred_supp , q_pred_query
+    return step_inner_losses, step_outer_losses, weighted_outer_loss , q_pred_supp , q_pred_query , fast_weights
 
 def get_per_step_loss_weights(args: Args, current_epoch: int):
     weights = np.ones(args.num_steps) * (1.0 / args.num_steps)
@@ -211,7 +215,7 @@ def train():
     state_dim = env.observation_space.shape[0]
     
     discriminator = Discriminator(state_dim, args.n_skills_total)
-    #discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
+    discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
     discriminator = discriminator.to(device)
 
     qnet = QNetwork(env , args.n_skills_selected)
@@ -219,11 +223,16 @@ def train():
     qnet = qnet.to(device)
     
     
-    model = QNetworkMaml(env).to(device)
-    meta_opt = optim.Adam(model.parameters(), lr=args.outer_lr)
+    model = SFNetwork(state_dim, args.n_actions, sf_dim=args.sf_dim)
+    model.load_state_dict(torch.load(args.model_path)['sfmeta_network_state_dict'])
+    model = model.to(device)
     criterion = nn.MSELoss()
 
- 
+    dummy_state  = torch.zeros(1, state_dim, device=device)
+    dummy_action = torch.zeros(1, args.n_actions, device=device)
+    dummy_task   = torch.zeros(args.sf_dim,   device=device)
+    _ = model(dummy_state, dummy_action, dummy_task)
+
     if(args.track):
         wandb.watch(
             models = [model],
@@ -237,85 +246,26 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [2, 5, 8, 10, 12 , 16]
+    allowed_skills = [2, 5, 8, 10, 12, 16]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
+    
 
-
-    for epoch in range(1, args.num_epochs + 1):
-        # metaloss_sum = 0
-        metaloss_sum = None
-        innerloss_sum = 0
+    for z in allowed_skills:
+        z_ind =  true_skill_to_model_idx[z]
+       
         weights=list(model.parameters())
         step_inner_losses_sums = [0.0 for _ in range(args.num_steps)]
         step_outer_losses_sums = [0.0 for _ in range(args.num_steps)]
         qsupport_sums = [0.0 for _ in range(args.num_steps)]
         qquery_sums = [0.0 for _ in range(args.num_steps)]
 
-        step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
+        step_weights = get_per_step_loss_weights(args, 1) if args.multi_step_loss else None
         # skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
+        # skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
         # skills_this_epoch = [6]
-        for z in skills_this_epoch:
-            
-            if z == args.val_skill:
-                continue
+      
 
-            z_ind =  true_skill_to_model_idx[z]
-
-            w_z = discriminator.q.weight[z].detach().to(device)
-            w_z = w_z / (torch.norm(w_z) + 1e-8)
-    
-            support_indices = torch.randint(0, support_states.size(0), (args.support_size,))
-            query_indices = torch.randint(0, query_states.size(0), (args.query_size,))
-
-            s_sup = support_states[support_indices].to(device)
-            a_sup = support_actions[support_indices].to(device)
-            s_que = query_states[query_indices].to(device)
-            a_que = query_actions[query_indices].to(device)
-
-
-            q_sup = get_q_values(qnet, s_sup, a_sup, z_ind, args.n_skills_selected, device)
-            q_que = get_q_values(qnet, s_que, a_que, z_ind, args.n_skills_selected, device)
-
-
-            
-            
-            step_inner_losses, step_outer_losses, metaloss, q_pred_supp , q_pred_query = maml_inner_loop(
-                model, criterion, s_sup, a_sup, s_que, a_que,
-                q_sup, q_que, w_z, args.inner_lr, weights,
-                num_steps, args.max_param_change_fraction,
-                step_weights=step_weights.to(device) if step_weights is not None else None
-            )
-            if metaloss_sum is None:
-                metaloss_sum = metaloss
-            else :
-                metaloss_sum = metaloss_sum + metaloss
-            for i, step_loss in enumerate(step_outer_losses):
-                step_outer_losses_sums[i] += step_loss
-            for i, step_loss in enumerate(step_inner_losses):
-                step_inner_losses_sums[i] += step_loss
-            for i, q in enumerate(q_pred_supp):
-                qsupport_sums[i] += q
-            for i, q in enumerate(q_pred_query):
-                qquery_sums[i] += q
-        
-        metaloss_avg =    metaloss_sum / (args.n_skills_epoch)
-        outer_loss_avgs = [loss / (args.n_skills_epoch) for loss in step_outer_losses_sums]
-        inner_loss_avgs = [loss / (args.n_skills_epoch) for loss in step_inner_losses_sums]
-        qsupport_avgs = [q / (args.n_skills_epoch) for q in qsupport_sums]
-        qquery_avgs = [q / (args.n_skills_epoch) for q in qquery_sums]
-
-        meta_opt.zero_grad(set_to_none=True)
-        metagrads=torch.autograd.grad(metaloss_avg, weights)
-        for w,g in zip(weights,metagrads):
-            w.grad=g
-        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=args.max_norm)
-        meta_opt.step()
-        
-       
-
-        # Validation (on a held-out skill)
-        w_z = discriminator.q.weight[args.val_skill].to(device)
+        w_z = discriminator.q.weight[z].detach().to(device)
         w_z = w_z / (torch.norm(w_z) + 1e-8)
 
         support_indices = torch.randint(0, support_states.size(0), (args.support_size,))
@@ -326,72 +276,31 @@ def train():
         s_que = query_states[query_indices].to(device)
         a_que = query_actions[query_indices].to(device)
 
-        z_ind =  true_skill_to_model_idx[args.val_skill]
 
-        valq_sup = get_q_values(qnet, s_sup, a_sup, z_ind, args.n_skills_selected, device)
-        valq_que = get_q_values(qnet, s_que, a_que, z_ind, args.n_skills_selected, device)
-        weights=list(model.parameters())
-
-        val_inner_losses , val_outer_losses, valmetaloss , valq_pred_supp , valq_pred_query = maml_inner_loop(
-                model, criterion, s_sup, a_sup, s_que, a_que,
-                valq_sup, valq_que, w_z, args.inner_lr, weights,
-                num_steps, args.max_param_change_fraction,
-                step_weights=step_weights.to(device) if step_weights is not None else None
-            )
-
-        if args.track:
-            log_dict = {
-                "train/mean_metaloss": float(metaloss_avg), 
-                "train/q_sup": float(q_sup.mean().item()),      
-                "train/q_que": float(q_que.mean().item()),          
-                "val/metaloss": float(valmetaloss),
-                "val/q_sup": float(valq_sup.mean().item()),      
-                "val/q_que": float(valq_que.mean().item()), 
-               
-            }
-            for i, loss in enumerate(outer_loss_avgs):
-                log_dict[f"train/outer(query)_loss_step_{i}"] = float(loss)
-            for i, loss in enumerate(inner_loss_avgs):
-                log_dict[f"train/inner(support)_loss_step_{i}"] = float(loss)
-            for i, q in enumerate(qquery_avgs):
-                log_dict[f"train/(q(query)_step_{i}"] = float(q)
-            for i, q in enumerate(qsupport_avgs):
-                log_dict[f"train/q(support)_step_{i}"] = float(q)
+        q_sup = get_q_values(qnet, s_sup, a_sup, z_ind, args.n_skills_selected, device)
+        q_que = get_q_values(qnet, s_que, a_que, z_ind, args.n_skills_selected, device)
 
 
+        
+        
+        step_inner_losses, step_outer_losses, metaloss, q_pred_supp , q_pred_query , fast_weights = maml_inner_loop(
+            model, criterion, s_sup, a_sup, s_que, a_que,
+            q_sup, q_que, w_z, args.inner_lr, weights,
+            num_steps, args.max_param_change_fraction,
+            step_weights=step_weights.to(device) if step_weights is not None else None
+        )
+        sf_model = SFNetwork(state_dim, args.n_actions, sf_dim=args.sf_dim).to(device)
+        # Load the fast weights
+        load_fast_weights(sf_model, fast_weights)
 
-            for i, loss in enumerate(val_outer_losses):
-                log_dict[f"val/outer(query)_loss_step_{i}"] = float(loss)
-            for i, loss in enumerate(val_inner_losses):
-                log_dict[f"val/inner(support)_loss_step_{i}"] = float(loss)
-            for i, q in enumerate(valq_pred_query):
-                log_dict[f"val/(q(query)_step_{i}"] = float(q)
-            for i, q in enumerate(valq_pred_supp):
-                log_dict[f"val/q(support)_step_{i}"] = float(q)
-
-
-               
-            
-                
-            # Final logging
-            wandb.log(log_dict, step=int(epoch))
-            for name, p in model.named_parameters():
-                wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
-            print(f"Epoch number {epoch} completed")
-
-            if(epoch % 25000 == 0):
-                model_dir = f"runs/checkpoints/qmaml/{epoch}/{run_name}"
-                os.makedirs(model_dir, exist_ok=True)
-                torch.save({
-                        "qmeta_network_state_dict": model.state_dict(),
-                    }, os.path.join(model_dir, f"latest.pth"))
-
-
-    model_dir = f"runs/checkpoints/qmaml/{run_name}"
-    os.makedirs(model_dir, exist_ok=True)
-    torch.save({
-            "qmeta_network_state_dict": model.state_dict(),
-        }, os.path.join(model_dir, f"latest.pth"))
+        print(f"metaloss for skill {z} is {metaloss}")
+        state_dict = sf_model.state_dict()
+        fast_weights_dict = {k: w for k, w in zip(state_dict.keys(), fast_weights)}
+        model_dir = f"runs/checkpoints/sfmetaadapt/{z}/{run_name}"
+        os.makedirs(model_dir, exist_ok=True)
+        torch.save({
+                "sfmeta_network_state_dict": sf_model.state_dict()
+            }, os.path.join(model_dir, f"latest.pth"))
 
 
 if __name__ == "__main__":

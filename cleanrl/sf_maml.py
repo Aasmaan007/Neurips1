@@ -22,9 +22,9 @@ class Args:
     cuda: bool = True
     env_id: str = "CartPole-v1"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/CartPole-v1__unified_collection_1__2025-05-13_20-30-59__1747148459/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-13_19-30-01__1747144801/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-13_19-30-01__1747144801/latest.pth"
+    data_path: str = "runs/data/CartPole-v1__unified_collection_1__2025-05-18_16-13-47__1747565027/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/diayn/CartPole-v1__diayn__1__2025-05-18_13-19-37__1747554577/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-18_15-13-17__1747561397/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -205,7 +205,7 @@ def train():
     state_dim = env.observation_space.shape[0]
     
     discriminator = Discriminator(state_dim, args.n_skills_total)
-    discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
+    discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
     discriminator = discriminator.to(device)
 
     qnet = QNetwork(env , args.n_skills_selected)
@@ -235,7 +235,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1 ,2, 5, 6, 11, 22]
+    allowed_skills = [2, 5, 8, 10, 12, 16]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
@@ -377,8 +377,14 @@ def train():
                 wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
             print(f"Epoch number {epoch} completed")
 
-            if epoch in [250,500,1000,1200,1500,2000.2600,3200,3700,4500,5000,5600,6000,6400,7000,7500,8200,8900,9700,11000,11800,12500,13000,
-                         14000,14600,15000,16000,17200,18000,18500,19000,20000,20500,21000,21500,22000,23000,23500,24000]:
+            # if epoch in [250,500,1000,1200,1500,2000.2600,3200,3700,4500,5000,5600,6000,6400,7000,7500,8200,8900,9700,11000,11800,12500,13000,
+            #              14000,14600,15000,16000,17200,18000,18500,19000,20000,20500,21000,21500,22000,23000,23500,24000]:
+            #     model_dir = f"runs/checkpoints/maml/{epoch}/{run_name}"
+            #     os.makedirs(model_dir, exist_ok=True)
+            #     torch.save({
+            #             "sfmeta_network_state_dict": model.state_dict(),
+            #         }, os.path.join(model_dir, f"latest.pth"))
+            if (epoch % 25000 == 0):
                 model_dir = f"runs/checkpoints/maml/{epoch}/{run_name}"
                 os.makedirs(model_dir, exist_ok=True)
                 torch.save({
@@ -386,7 +392,7 @@ def train():
                     }, os.path.join(model_dir, f"latest.pth"))
 
 
-    model_dir = f"runs/checkpoints/maml/{epoch}/{run_name}"
+    model_dir = f"runs/checkpoints/maml/{run_name}"
     os.makedirs(model_dir, exist_ok=True)
     torch.save({
             "sfmeta_network_state_dict": model.state_dict(),

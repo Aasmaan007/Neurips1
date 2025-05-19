@@ -99,6 +99,9 @@ class Args:
     ddqn: bool = True
     '''whether to use ddqn'''
 
+    pretrained: bool = True
+    disc_path: str = "runs/checkpoints/diayn/CartPole-v1__diayn__1__2025-05-18_13-19-37__1747554577/latest.pth"
+
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -187,6 +190,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     target_network.load_state_dict(q_network.state_dict())
 
     discriminator = Discriminator(env.observation_space.shape[0], args.n_skills_total).to(device)
+
+    if args.pretrained:
+        discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
+        discriminator = discriminator.to(device)
     
 
     if args.track:
@@ -216,7 +223,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     start_time = time.time()
     global_step = 0
     episode = 0
-    allowed_skills = [1, 2, 5, 6, 11, 22]
+    allowed_skills = [2, 5, 8, 10, 12 , 16] 
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 

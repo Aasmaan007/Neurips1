@@ -19,15 +19,15 @@ class Args:
     seed: int = 10
     cuda: bool = True
     capture_video: bool = True
-    env_id: str = "LunarLander-v2"
+    env_id: str = "CartPole-v1"
     n_skills: int = 25
-    eval_episodes_per_skill: int = 15
-    model_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    wandb_project_name: str = "Diayn_LunarLander_Evaluate"
+    eval_episodes_per_skill: int = 10
+    model_path: str = "runs/checkpoints/diayn/CartPole-v1__diayn__1__2025-05-18_13-19-37__1747554577/latest.pth"
+    wandb_project_name: str = "Diayn_Evaluate"
     wandb_entity: str = None
     track: bool = True
     max_timesteps: int = 1000
-    record_every_x_episode: int = 3
+    record_every_x_episode: int = 2
     
 
 def make_env(env_id, seed, skill, run_name, capture_video, record_every_x_episodes):
@@ -39,7 +39,7 @@ def make_env(env_id, seed, skill, run_name, capture_video, record_every_x_episod
 
     def thunk():
         env = gym.make(env_id, render_mode="rgb_array")
-        env = TimeLimit(env, args.max_timesteps)
+        # env = TimeLimit(env, args.max_timesteps)
         if capture_video:
             video_folder = os.path.join("videos", run_name)
             name_prefix = f"skill_{skill}"
@@ -81,7 +81,7 @@ def evaluate_skill_policy(q_network, env_fn, device, skill, n_skills, eval_episo
 if __name__ == "__main__":
     args = tyro.cli(Args)
     timestamp = int(time.time())
-    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{time.strftime('%Y-%m-%d_%H-%M-%S')}__{timestamp}"
+    run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{time.strftime('%Y-%m-%d_%H-%M-%S')}"
 
     # Initialize W&B (no sync_tensorboard!)
     if args.track:

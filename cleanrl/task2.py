@@ -30,8 +30,8 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/500/CartPole-v1__MAML_SF__1__2025-05-14_17-39-34__1747224574/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-13_19-30-01__1747144801/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/500/CartPole-v1__MAML_SF__1__2025-05-18_16-43-03__1747566783/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-18_15-13-17__1747561397/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
     n_skills_selected: int = 6

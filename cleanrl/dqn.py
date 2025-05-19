@@ -21,7 +21,7 @@ from gymnasium.wrappers.time_limit import TimeLimit as GymTimeLimit
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = 94
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -65,15 +65,15 @@ class Args:
     """the starting epsilon for exploration"""
     end_e: float = 0.05
     """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.5
+    exploration_fraction: float = 0.2
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
     max_timesteps: int = 1000
-    model_path: str = "runs/checkpoints/qmaml/CartPole-v1__MAML_Q__1__2025-05-13_21-05-54__1747150554/latest.pth" 
-    pretrained: bool = False
+    model_path: str = "runs/checkpoints/qmaml/500000/CartPole-v1__MAML_Q__1__2025-05-18_19-04-33__1747575273/latest.pth" 
+    pretrained: bool = True
 
 
 

@@ -46,7 +46,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "LunarLander-v2"
+    env_id: str = "CartPole-v1"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
@@ -362,6 +362,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 "episodic/terminal/td_loss": float(loss_terminal.item()),
 
             } , step = int(episode))
+
+    model_dir = f"runs/checkpoints/diayn/{run_name}"
+    os.makedirs(model_dir, exist_ok=True)
+    torch.save({
+        "q_network_state_dict": q_network.state_dict(),
+        "discriminator_state_dict": discriminator.state_dict(),
+        "episode": episode
+    }, os.path.join(model_dir, f"latest.pth"))  
     
     env.close()
     writer.close()
