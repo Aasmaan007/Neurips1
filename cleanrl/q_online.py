@@ -82,7 +82,7 @@ class Args:
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
-    n_skills_selected: int = 21  # mapped skills: 1 → 0, 2 → 1, etc.
+    n_skills_selected: int = 6  # mapped skills: 1 → 0, 2 → 1, etc.
     """ number of skills """
     n_skills_total: int = 25  # mapped skills: 1 → 0, 2 → 1, etc.
     """ number of skills """
@@ -98,6 +98,9 @@ class Args:
     '''gradient clipping '''
     ddqn: bool = True
     '''whether to use ddqn'''
+
+    pretrained: bool = True
+    disc_path: str = "runs/checkpoints/diayn/Acrobot-v1__diayn__1__2025-05-19_23-20-06__1747677006/latest.pth"
 
 
 def concat_state_latent(s, z, n_skills):
@@ -188,6 +191,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     discriminator = Discriminator(env.observation_space.shape[0], args.n_skills_total).to(device)
     
+    if args.pretrained:
+        discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
+        discriminator = discriminator.to(device)
+
 
     if args.track:
         wandb.watch(
@@ -216,7 +223,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     start_time = time.time()
     global_step = 0
     episode = 0
-    allowed_skills = [1, 2, 5, 6, 11, 22]
+    allowed_skills = [2, 6, 8, 10, 21, 23]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 

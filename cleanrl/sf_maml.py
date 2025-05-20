@@ -22,12 +22,12 @@ class Args:
     cuda: bool = True
     env_id: str = "Acrobot-v1"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/Acrobot-v1__unified_collection_1__2025-05-17_09-55-04__1747455904/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-17_02-28-14__1747429094/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-17_02-28-14__1747429094/latest.pth"
+    data_path: str = "runs/data/Acrobot-v1__unified_collection_1__2025-05-20_04-09-19__1747694359/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/diayn/Acrobot-v1__diayn__1__2025-05-19_23-20-06__1747677006/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-20_01-46-39__1747685799/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
-    n_skills_selected: int = 21
+    n_skills_selected: int = 6
     n_skills_epoch: int = 4
     n_actions: int = 3  # Set this according to env
     hidden_dim: int = 120
@@ -36,7 +36,7 @@ class Args:
     num_epochs: int = 500000
     support_size: int = 128
     query_size: int = 64
-    val_skill: int = 5
+    val_skill: int = 6
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
@@ -205,7 +205,7 @@ def train():
     state_dim = env.observation_space.shape[0]
     
     discriminator = Discriminator(state_dim, args.n_skills_total)
-    discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
+    discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
     discriminator = discriminator.to(device)
 
     qnet = QNetwork(env , args.n_skills_selected)
@@ -235,7 +235,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1 ,2, 5, 6, 11, 22]
+    allowed_skills = [2 ,6, 8, 10, 21, 23]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
@@ -377,8 +377,7 @@ def train():
                 wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
             print(f"Epoch number {epoch} completed")
 
-            if epoch in [250,500,1000,1200,1500,2000.2600,3200,3700,4500,5000,5600,6000,6400,7000,7500,8200,8900,9700,11000,11800,12500,13000,
-                         14000,14600,15000,16000,17200,18000,18500,19000,20000,20500,21000,21500,22000,23000,23500,24000]:
+            if (epoch % 25000 == 0):
                 model_dir = f"runs/checkpoints/maml/{run_name}/{epoch}"
                 os.makedirs(model_dir, exist_ok=True)
                 torch.save({

@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    seed: int = 81
+    seed: int = 3
     torch_deterministic: bool = True
     cuda: bool = True
     track: bool = True
@@ -39,15 +39,15 @@ class Args:
     batch_size: int = 128
     start_e: float = 1
     end_e: float = 0.05
-    exploration_fraction: float = 0.5
+    exploration_fraction: float = 0.2
     learning_starts: int = 10000
     train_frequency: int = 10
     w_path: str  = "runs/checkpoints/env_phi_task/Acrobot-v1__joint_phi_task__1__2025-05-17_23-56-00/latest.pth"
 
-    epoch_no_testing: str = "500"
+    # epoch_no_testing: str = "500"
 
-    model_path = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-17_17-16-23__1747482383/"+epoch_no_testing+"/latest.pth"
-    w_random: bool = False
+    model_path = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-20_13-17-28__1747727248/250000/latest.pth"
+    w_random: bool = True
     pretrained: bool = True
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -99,7 +99,7 @@ if __name__ == "__main__":
     assert args.num_envs == 1, "vectorized envs are not supported at the moment"
     # run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{int(time.time())}"
     timestamp = int(time.time())
-    run_name = f"{args.env_id}__{args.seed}__wrandom-{args.w_random}__pretrained-{args.pretrained}__{args.epoch_no_testing}__{time.strftime('%Y-%m-%d_%H-%M-%S')}"
+    run_name = f"{args.env_id}__{args.seed}__wrandom-{args.w_random}__pretrained-{args.pretrained}__{time.strftime('%Y-%m-%d_%H-%M-%S')}"
 
     if args.track:
         import wandb
