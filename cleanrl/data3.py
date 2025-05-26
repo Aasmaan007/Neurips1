@@ -29,7 +29,7 @@ class Args:
     exploration_fraction: float = 0.50
     pos_dup_factor: int = 60
     model_path_disc: str = "runs/checkpoints/diayn/Acrobot-v1__diayn__1__2025-05-19_23-20-06__1747677006/latest.pth"
-    model_path_qnet: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-20_01-46-39__1747685799/latest.pth"
+    model_path_qnet: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-20_16-46-30__1747739790/latest.pth"
     wandb_project_name: str = "unified_data_collection"
     wandb_entity: str = None
     track: bool = True

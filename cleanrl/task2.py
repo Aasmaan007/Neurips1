@@ -20,7 +20,7 @@ class Args:
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
-    total_epochs: int = 3
+    total_epochs: int = 30
     learning_rate_phi: float = 2.5e-4
     learning_rate_w: float = 6e-4
     task_lag: int = 1
@@ -31,11 +31,11 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-17_17-16-23__1747482383/500/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-17_02-28-14__1747429094/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-20_17-35-29__1747742729/250000/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-20_16-46-30__1747739790/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
-    n_skills_selected: int = 21
+    n_skills_selected: int = 6
 
 
 class TaskVector(nn.Module):
@@ -132,7 +132,7 @@ def train():
             if epoch % args.task_lag == 0:
                 with torch.no_grad():
                     a_onehot = F.one_hot(a, num_classes=dummy_env.action_space.n).float().to(device)
-                    skill_idx = 1
+                    skill_idx = 4
                     skill_vec = torch.full((snext.size(0),), skill_idx, dtype=torch.long, device=device)
                     s_aug = concat_state_latent_batch(snext, skill_vec, args.n_skills_selected)
                     q_values = qnet(s_aug)

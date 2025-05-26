@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class Args:
     data_dir: str = "acrobot_runsdata_q"
     reward_threshold: float = -100
-    patience: int = 9
+    patience: int = 10
 
 def extract_seed_pretrained(filename):
     match = re.search(r"_(\d+)_.*__pretrained-(True|False)", filename)

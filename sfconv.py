@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class Args:
     data_dir: str = "acrobot_runsdata_sf"
     reward_threshold: float = -100
-    patience: int = 9
+    patience: int = 10
 
 def extract_seed_pretrained(filename):
     # Matches: LunarLander-v2__35__wrandom-False__pretrained-True__2025-05-05_02-37-10.csv

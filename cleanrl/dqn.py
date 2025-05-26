@@ -72,7 +72,7 @@ class Args:
     train_frequency: int = 10
     """the frequency of training"""
     max_timesteps: int = 1000
-    model_path: str = "runs/checkpoints/qmaml/Acrobot-v1__MAML_Q__1__2025-05-17_19-51-41__1747491701/latest.pth" 
+    model_path: str = "runs/checkpoints/qmaml/Acrobot-v1__MAML_Q__1__2025-05-20_18-37-42__1747746462/latest.pth" 
     pretrained: bool = False
 
 

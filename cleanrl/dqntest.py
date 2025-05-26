@@ -39,15 +39,15 @@ class Args:
     batch_size: int = 128
     start_e: float = 1
     end_e: float = 0.05
-    exploration_fraction: float = 0.2
+    exploration_fraction: float = 0.5
     learning_starts: int = 10000
     train_frequency: int = 10
-    w_path: str  = "runs/checkpoints/env_phi_task/Acrobot-v1__joint_phi_task__1__2025-05-17_23-56-00/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/Acrobot-v1__joint_phi_task__1__2025-05-20_19-12-13/latest.pth"
 
     # epoch_no_testing: str = "500"
 
-    model_path = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-20_13-17-28__1747727248/250000/latest.pth"
-    w_random: bool = True
+    model_path = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-20_17-35-29__1747742729/250000/latest.pth"
+    w_random: bool = False
     pretrained: bool = True
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -155,8 +155,8 @@ if __name__ == "__main__":
     w = torch.randn(32).to(device)
     w = w / (w.norm() + 1e-8)
     task_vector = TaskVector(32).to(device)
-    checkpoint1 = torch.load(args.w_path)
     if(not args.w_random):
+        checkpoint1 = torch.load(args.w_path)
         task_vector.load_state_dict(checkpoint1["task_vector"])
     w = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
 

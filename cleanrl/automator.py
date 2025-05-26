@@ -4,7 +4,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # Parameters
 seeds = [81, 14, 3, 94, 35]
-pretrained_options = [True, False]
+pretrained_options = [False]
 max_parallel_jobs = 10  # Set this based on your system
 
 # Build combinations
@@ -12,7 +12,7 @@ combinations = list(itertools.product(seeds, pretrained_options))
 
 def run_combination(seed, pretrained):
     cmd = [
-        "python", "-m", "cleanrl.cleanrl.dqntest",
+        "python", "-m", "cleanrl.cleanrl.dqn",
         f"--seed={seed}"
     ]
 

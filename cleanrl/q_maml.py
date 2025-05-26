@@ -22,9 +22,9 @@ class Args:
     cuda: bool = True
     env_id: str = "Acrobot-v1"
     exp_name: str = "MAML_Q"
-    data_path: str = "runs/data/Acrobot-v1__unified_collection_1__2025-05-20_04-09-19__1747694359/maml_training_data.pkl"
+    data_path: str = "runs/data/Acrobot-v1__unified_collection_1__2025-05-20_17-18-01__1747741681/maml_training_data.pkl"
     disc_path: str = "runs/checkpoints/diayn/Acrobot-v1__diayn__1__2025-05-19_23-20-06__1747677006/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-20_01-46-39__1747685799/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/Acrobot-v1__q_online__1__2025-05-20_16-46-30__1747739790/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
