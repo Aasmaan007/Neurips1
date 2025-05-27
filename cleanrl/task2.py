@@ -20,7 +20,7 @@ class Args:
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
-    total_epochs: int = 40
+    total_epochs: int = 30
     learning_rate_phi: float = 2.5e-4
     learning_rate_w: float = 6e-4
     task_lag: int = 1

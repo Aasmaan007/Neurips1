@@ -10,7 +10,7 @@ class Args:
     sf_dir: str = "mountaincar_runsdata_sf"
     q_dir: str = "mountaincar_runsdata_q"
     reward_threshold: float = -150
-    patience: int = 10
+    patience: int = 9
 
 # === SF EXTRACT ===
 def extract_sf_seed_pretrained(filename):

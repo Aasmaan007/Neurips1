@@ -42,7 +42,7 @@ class Args:
     exploration_fraction: float = 0.5
     learning_starts: int = 10000
     train_frequency: int = 10
-    w_path: str  = "runs/checkpoints/env_phi_task/MountainCar-v0__joint_phi_task__1__2025-05-13_01-35-43/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/MountainCar-v0__joint_phi_task__1__2025-05-27_11-49-54/latest.pth"
     model_path = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth"
     w_random: bool = False
     pretrained: bool = False
