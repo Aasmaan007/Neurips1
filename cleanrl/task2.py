@@ -19,7 +19,7 @@ class Args:
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
-    total_epochs: int = 3
+    total_epochs: int = 30
     learning_rate_phi: float = 2.5e-4
     learning_rate_w: float = 6e-4
     task_lag: int = 1
@@ -30,7 +30,7 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/500/CartPole-v1__MAML_SF__1__2025-05-18_16-43-03__1747566783/latest.pth" 
+    model_path2: str = "runs/checkpoints/maml/500000/CartPole-v1__MAML_SF__1__2025-05-18_19-04-30__1747575270/latest.pth" 
     qnet_path: str =  "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-18_15-13-17__1747561397/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70

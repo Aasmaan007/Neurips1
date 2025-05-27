@@ -39,13 +39,13 @@ class Args:
     batch_size: int = 128
     start_e: float = 1
     end_e: float = 0.05
-    exploration_fraction: float = 0.2
+    exploration_fraction: float = 0.5
     learning_starts: int = 10000
     train_frequency: int = 10
-    w_path: str  = "runs/checkpoints/env_phi_task/CartPole-v1__joint_phi_task__1__2025-05-15_22-34-16/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/CartPole-v1__joint_phi_task__1__2025-05-26_21-25-36/latest.pth"
     model_path = "runs/checkpoints/maml/500000/CartPole-v1__MAML_SF__1__2025-05-18_19-04-30__1747575270/latest.pth"
     # model_path = "runs/checkpoints/sfmetaadapt/8/CartPole-v1__MAML_SF__1__2025-05-19_03-15-41__1747604741/latest.pth"
-    w_random: bool = True
+    w_random: bool = False
     pretrained: bool =  True
 
 def make_env(env_id, seed, idx, capture_video, run_name):

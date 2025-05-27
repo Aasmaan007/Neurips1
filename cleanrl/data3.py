@@ -14,6 +14,14 @@ import pickle
 
 from cleanrl.diayn.models import Discriminator, QNetwork
 
+import uuid
+
+def save_chunk(data, name, directory, step):
+    os.makedirs(directory, exist_ok=True)
+    filename = os.path.join(directory, f"{name}_{step}_{uuid.uuid4().hex}.pkl")
+    with open(filename, "wb") as f:
+        pickle.dump(data, f)
+
 @dataclass
 class Args:
     seed: int = 1
@@ -28,7 +36,7 @@ class Args:
     end_e: float = 0.05
     exploration_fraction: float = 0.50
     pos_dup_factor: int = 60
-    model_path_disc: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
+    model_path_disc: str = "runs/checkpoints/diayn/CartPole-v1__diayn__1__2025-05-18_13-19-37__1747554577/latest.pth"
     model_path_qnet: str = "runs/checkpoints/qtargetmaml/CartPole-v1__q_online__1__2025-05-18_15-13-17__1747561397/latest.pth"
     wandb_project_name: str = "unified_data_collection"
     wandb_entity: str = None
@@ -83,7 +91,7 @@ if __name__ == "__main__":
     checkpoint_disc = torch.load(args.model_path_disc)
     checkpoint_qnet = torch.load(args.model_path_qnet)
     q_net.load_state_dict(checkpoint_qnet["q_network_state_dict"])
-    #discriminator.load_state_dict(checkpoint_disc["discriminator_state_dict"])
+    discriminator.load_state_dict(checkpoint_disc["discriminator_state_dict"])
 
     allowed_skills = [2, 5, 8, 10, 12 , 16]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
