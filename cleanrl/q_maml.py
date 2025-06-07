@@ -22,9 +22,9 @@ class Args:
     cuda: bool = True
     env_id: str = "LunarLander-v2"
     exp_name: str = "MAML_Q"
-    data_path: str = "runs/data/LunarLander-v2__unified_collection_1__2025-05-01_23-50-37__1746123637/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-01_16-14-07__1746096247/latest.pth"
+    data_path: str = "runs/data/LunarLander-v2__unified_collection_1__2025-05-05_00-18-05__1746384485/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -211,7 +211,7 @@ def train():
     state_dim = env.observation_space.shape[0]
     
     discriminator = Discriminator(state_dim, args.n_skills_total)
-    discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
+    discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
     discriminator = discriminator.to(device)
 
     qnet = QNetwork(env , args.n_skills_selected)

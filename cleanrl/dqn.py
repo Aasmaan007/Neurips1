@@ -63,13 +63,13 @@ class Args:
     """the starting epsilon for exploration"""
     end_e: float = 0.05
     """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.5
+    exploration_fraction: float = 0.2
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
     train_frequency: int = 10
     """the frequency of training"""
-    model_path: str = "runs/checkpoints/qmaml/LunarLander-v2__MAML_Q__1__2025-05-03_04-27-04__1746226624/latest.pth" 
+    model_path: str = "runs/checkpoints/qmaml/LunarLander-v2__MAML_Q__1__2025-05-27_20-50-46__1748359246/latest.pth" 
     pretrained: bool = True
 
 
