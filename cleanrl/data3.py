@@ -4,6 +4,7 @@ import time
 from dataclasses import dataclass
 import tyro
 
+import minigrid
 import gymnasium as gym
 import numpy as np
 import torch
@@ -14,14 +15,19 @@ import pickle
 
 from cleanrl.diayn.models import Discriminator, QNetwork
 
+def extract_obs(obs):
+    if isinstance(obs, dict) and "image" in obs:
+        return obs["image"].flatten().astype(np.float32)
+    else:
+        return np.asarray(obs, dtype=np.float32)
+
 @dataclass
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "LunarLander-v2"
+    env_id: str = "MiniGrid-Unlock-v0"
     max_timesteps: int = 1000
     total_timesteps: int = 1000000
-    # skill_timesteps: int = 392157
     n_skills_total: int = 25
     n_skills_selected: int = 6
     start_e: float = 1
@@ -29,7 +35,7 @@ class Args:
     exploration_fraction: float = 0.50
     pos_dup_factor: int = 60
     model_path_disc: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    model_path_qnet: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
+    model_path_qnet: str = "runs/checkpoints/qtargetmaml/MiniGrid-Unlock-v0__q_online__1__2025-06-14_14-58-47__1749893327/latest.pth"
     wandb_project_name: str = "unified_data_collection"
     wandb_entity: str = None
     track: bool = True
@@ -78,12 +84,19 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
     env = make_env(args.env_id, args.seed, args.max_timesteps)
 
-    q_net = QNetwork(env, args.n_skills_selected).to(device)
-    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills_total).to(device)
+    # --- MINI GRID: get obs_dim from image shape
+    if isinstance(env.observation_space, gym.spaces.Dict):
+        image_shape = env.observation_space["image"].shape
+        obs_dim = np.prod(image_shape)
+    else:
+        obs_dim = np.prod(env.observation_space.shape)
+
+    q_net = QNetwork(obs_dim, env.action_space.n, args.n_skills_selected).to(device)
+    discriminator = Discriminator(obs_dim, args.n_skills_total).to(device)
     checkpoint_disc = torch.load(args.model_path_disc)
     checkpoint_qnet = torch.load(args.model_path_qnet)
     q_net.load_state_dict(checkpoint_qnet["q_network_state_dict"])
-    discriminator.load_state_dict(checkpoint_disc["discriminator_state_dict"])
+    #discriminator.load_state_dict(checkpoint_disc["discriminator_state_dict"])
 
     allowed_skills = [1, 2, 5, 6, 11, 22]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
@@ -93,23 +106,18 @@ if __name__ == "__main__":
     maml_training_data = []
     per_skill_states = {z: [] for z in allowed_skills}
     pos_only_buffer = []
-    task_regression_data = []  # (s_next, reward) tuples
+    task_regression_data = []
     task_regression_data2 = []
-
-    # offline_q_buffer = []  # new buffer to be saved for offline Q training
 
     episode = 0
     global_step = 0
 
-    # for z in allowed_skills:
-    #     skill_steps = 0
-    #     episode_skill = 0
-    #     z_ind = true_skill_to_model_idx[z]
     while global_step < args.total_timesteps:
         z = np.random.choice(allowed_skills)
         z_ind = true_skill_to_model_idx[z]
         obs, _ = env.reset(seed=args.seed + z_ind * 1000 + episode)
-        obs_aug = concat_state_latent(obs, z_ind, args.n_skills_selected)
+        obs_flat = extract_obs(obs)
+        obs_aug = concat_state_latent(obs_flat, z_ind, args.n_skills_selected)
         episode += 1
         for t in range(args.max_timesteps+5):
             epsilon = linear_schedule(args.start_e, args.end_e, args.exploration_fraction * args.total_timesteps, global_step)
@@ -120,16 +128,16 @@ if __name__ == "__main__":
                     q_vals = q_net(torch.tensor(obs_aug, dtype=torch.float32).unsqueeze(0).to(device))
                     action = torch.argmax(q_vals, dim=1).item()
 
-
             next_obs, reward, terminated, truncated, _ = env.step(action)
-            task_regression_data.append((next_obs.copy(), reward))
+            next_obs_flat = extract_obs(next_obs)
+            task_regression_data.append((next_obs_flat.copy(), reward))
             with torch.no_grad():
-                    next_obs_aug = concat_state_latent(next_obs, z_ind, args.n_skills_selected)
-                    q_vals_next = q_net(torch.tensor(next_obs_aug, dtype=torch.float32).unsqueeze(0).to(device))
-                    action_next = torch.argmax(q_vals_next, dim=1).item()
-            task_regression_data2.append((obs.copy() , action , reward , next_obs.copy(), action_next , terminated))
+                next_obs_aug = concat_state_latent(next_obs_flat, z_ind, args.n_skills_selected)
+                q_vals_next = q_net(torch.tensor(next_obs_aug, dtype=torch.float32).unsqueeze(0).to(device))
+                action_next = torch.argmax(q_vals_next, dim=1).item()
+            task_regression_data2.append((obs_flat.copy(), action, reward, next_obs_flat.copy(), action_next, terminated))
 
-            next_obs_tensor = torch.tensor(next_obs, dtype=torch.float32).to(device)
+            next_obs_tensor = torch.tensor(next_obs_flat, dtype=torch.float32).to(device)
 
             with torch.no_grad():
                 logits = discriminator(next_obs_tensor.unsqueeze(0))
@@ -141,20 +149,17 @@ if __name__ == "__main__":
                 r = (logq_zs[0, z_idx] - logpz).item()
                 w = discriminator.q.weight[z_idx].detach().cpu().numpy()
                 w = w / (np.linalg.norm(w) + 1e-8)
-                phi_training_data.append((next_obs.copy(), r, w))
-                # offline_q_buffer.append((obs.copy(), action, r, next_obs.copy(), skill_to_model_idx[z_idx], terminated))
-
+                phi_training_data.append((next_obs_flat.copy(), r, w))
                 if z_idx == z and r > 0:
                     for _ in range(args.pos_dup_factor):
-                        pos_only_buffer.append((next_obs.copy(), r, w))
-                        # offline_q_buffer.append((obs.copy(), action, r, next_obs.copy(), skill_to_model_idx[z_idx], terminated))
+                        pos_only_buffer.append((next_obs_flat.copy(), r, w))
 
-            maml_training_data.append(next_obs.copy())
-            per_skill_states[z].append(next_obs.copy())
+            maml_training_data.append(next_obs_flat.copy())
+            per_skill_states[z].append(next_obs_flat.copy())
 
-            obs = next_obs
-            obs_aug = concat_state_latent(obs, z_ind, args.n_skills_selected)
-            global_step +=1 
+            obs_flat = next_obs_flat
+            obs_aug = concat_state_latent(obs_flat, z_ind, args.n_skills_selected)
+            global_step += 1
 
             if(global_step % 1000 == 0):
                 print(f"Global steps {global_step} completed")
@@ -166,12 +171,10 @@ if __name__ == "__main__":
             wandb.log({
                 "episodic/len_SF_data": float(len(phi_training_data)),
                 "episodic/len_MAML_data": float(len(maml_training_data)),
-                 "episodic/len_task_regression_data": float(len(task_regression_data)),
+                "episodic/len_task_regression_data": float(len(task_regression_data)),
                 "episodic/global_steps": float(global_step),
                 "episodic/pos_only_buffer": float(len(pos_only_buffer))
-            },step = int(episode))
-        
-        
+            }, step=int(episode))
 
     env.close()
     model_dir = f"runs/data/{run_name}"
@@ -181,14 +184,10 @@ if __name__ == "__main__":
         pickle.dump(phi_training_data + pos_only_buffer, f)
     with open(os.path.join(model_dir, "maml_training_data.pkl"), "wb") as f:
         pickle.dump(maml_training_data, f)
-    # with open(os.path.join(model_dir, "offline_q_buffer.pkl"), "wb") as f:
-    #     pickle.dump(offline_q_buffer, f)
     with open(os.path.join(model_dir, "task_regression_data.pkl"), "wb") as f:
         pickle.dump(task_regression_data, f)
     with open(os.path.join(model_dir, "task_regression_data2.pkl"), "wb") as f:
         pickle.dump(task_regression_data2, f)
-
-
 
     per_skill_dir = os.path.join(model_dir, "per_skill_states")
     os.makedirs(per_skill_dir, exist_ok=True)
@@ -196,8 +195,6 @@ if __name__ == "__main__":
         with open(os.path.join(per_skill_dir, f"skill_{z}.pkl"), "wb") as f:
             pickle.dump(states, f)
 
-   
-    # print(f"Saved offline Q buffer to {model_dir}/offline_q_buffer.pkl")
     print(f"Saved φ(s) training data to {model_dir}/phi_training_data.pkl")
     print(f"Saved MAML training data to {model_dir}/maml_training_data.pkl")
     print(f"Total positive reward duplicates added: {len(pos_only_buffer)}")

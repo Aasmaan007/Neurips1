@@ -3,7 +3,6 @@ import random
 import time
 from dataclasses import dataclass
 import sys
-import pickle
 
 import minigrid
 import gymnasium as gym
@@ -20,6 +19,7 @@ from cleanrl.diayn.utils import train_dqn_online
 from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
 from collections import defaultdict
+import pickle
 
 # --- MiniGrid observation extraction utility ---
 def extract_obs(obs):
@@ -44,7 +44,7 @@ class Args:
     learning_rate_qnet: float = 6e-5
     num_env: int = 1
     buffer_size: int = 1000000
-    gamma: float = 0.1
+    gamma: float = 0.99
     tau: float = 1
     target_network_frequency: int = 750
     batch_size: int = 64
@@ -59,6 +59,7 @@ class Args:
     train_frequency: int = 6
     rewardclipping: bool = True
     ddqn: bool = True
+    reward_history_path: str = "runs/checkpoints/qtargetmaml/MiniGrid-Unlock-v0__q_online__1__2025-06-14_14-31-01__1749891661/intrinsic_rewards_history.pkl"
 
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
@@ -82,6 +83,7 @@ def make_env(env_id, seed, idx, capture_video, run_name, max_timesteps):
 def linear_schedule(start_e: float, end_e: float, duration: int, t: int):
     slope = (end_e - start_e) / duration
     return max(slope * t + start_e, end_e)
+
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
@@ -114,6 +116,12 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
     )
+
+    # 1. Load the pickle file
+    with open(args.reward_history_path, "rb") as f:
+        intrinsic_rewards_history = pickle.load(f)  # This will be a list of floats
+    
+    intrinsic_rewards_arr = np.array(intrinsic_rewards_history)
 
     # --- seeding ---
     random.seed(args.seed)
@@ -166,8 +174,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     allowed_skills = [1, 2, 5, 6, 11, 22]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
-    intrinsic_rewards_history = []
-
 
     while global_step < args.total_timesteps:
         # --- Sample skill ---
@@ -208,9 +214,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 if(global_step % args.train_frequency == 0):
                     data = rb.sample(args.batch_size)
                     loss, old_val , intrinsic_rewards , logqz , td_target , bootstrapping = train_dqn_online(
-                        q_network, target_network, discriminator, data, device, args, global_step, optimizer, model_idx_to_true_skill, 0, 1
+                        q_network, target_network, discriminator, data, device, args, global_step, optimizer, model_idx_to_true_skill, intrinsic_rewards_arr.mean(), intrinsic_rewards_arr.std()
                     )
-                    intrinsic_rewards_history.extend(intrinsic_rewards.cpu().tolist())
                 if global_step % args.target_network_frequency == 0:
                     for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
                         target_network_param.data.copy_(
@@ -248,11 +253,5 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         "disc_state_dict": discriminator.state_dict(),
         "episode": episode
     }, os.path.join(model_dir, f"latest.pth"))
-    
-    with open(os.path.join(model_dir, "intrinsic_rewards_history.pkl"), "wb") as f:
-        pickle.dump(intrinsic_rewards_history, f)
-    print(f"Saved intrinsic rewards ({len(intrinsic_rewards_history)} samples) to {model_dir}/intrinsic_rewards_history.pkl")
-
-    
     env.close()
     writer.close()

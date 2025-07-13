@@ -1,8 +1,9 @@
 import torch
 import torch.nn.functional as F
 from torch.optim import Adam
-from stable_baselines3.common.buffers import ReplayBuffer
+#from stable_baselines3.common.buffers import ReplayBuffer
 from stable_baselines3.common.buffers import ReplayBufferSamples
+from maze_cleanrl.cleanrl.compatible_replay_buffer import CompatibleReplayBuffer as ReplayBuffer
 
 
 def merge_batches(a: ReplayBufferSamples, b: ReplayBufferSamples) -> ReplayBufferSamples:
@@ -204,7 +205,7 @@ def train_sf(sf_network, sf_target_network, data, device, args, global_step, opt
 
     return loss, current_q_values, td_target
 
-def train_dqn_online(q_network, target_network, discriminator, data, device, args, global_step, optimizer, model_idx_to_true_skill):
+def train_dqn_online(q_network, target_network, discriminator, data, device, args, global_step, optimizer, model_idx_to_true_skill, rewards_mean, rewards_std):
     states = data.observations
     next_states = data.next_observations
 
@@ -220,7 +221,7 @@ def train_dqn_online(q_network, target_network, discriminator, data, device, arg
     logq_zs = torch.log(q_zs)
     logq_z = logq_zs[range(args.batch_size), true_zs]
     logpz = torch.tensor(1.0 / args.n_skills_total + 1e-6).log().to(device)  # Since discriminator trained on 25 skills
-    intrinsic_rewards = (logq_z - logpz).detach()
+    intrinsic_rewards = (((logq_z - logpz).detach() ) + 1.5 - rewards_mean) / (rewards_std)
 
     # TD Target
     with torch.no_grad():
