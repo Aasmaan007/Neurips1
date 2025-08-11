@@ -42,7 +42,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "Hopper-v4"
+    env_id: str = "HalfCheetah-v4"
     """the environment id of the Atari game"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
@@ -64,6 +64,10 @@ class Args:
     """the frequency of training policy (delayed)"""
     noise_clip: float = 0.5
     """noise clip parameter of the Target Policy Smoothing Regularization"""
+    w_path: str  = "runs/checkpoints/env_phi_task/HalfCheetah-v4__joint_phi_task__1__2025-08-07_19-50-19/latest.pth"
+    model_path = "runs/checkpoints/maml/HalfCheetah-v4__MAML_SF__1__2025-08-07_15-29-44__1754560784/latest.pth"
+    w_random: bool = False
+    pretrained: bool = True
 
 
 
@@ -81,28 +85,46 @@ def make_env(env_id, seed, idx, capture_video, run_name):
     return thunk
 
 
-# ALGO LOGIC: initialize agent here:
+# # ALGO LOGIC: initialize agent here:
+# class QNetwork(nn.Module):
+#     def __init__(self, env):
+#         super().__init__()
+#         self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape), 120)
+#         self.fc2 = nn.Linear(120, 120)
+#         self.fc3 = nn.Linear(120, 32)
+
+#     def forward(self, x, a):
+#         x = torch.cat([x, a], 1)
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+#         x = self.fc3(x)
+#         return x
+    
 class QNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
-        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod() + np.prod(env.single_action_space.shape), 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 1)
+        state_dim = np.prod(env.single_observation_space.shape)
+        action_dim = np.prod(env.single_action_space.shape)
+        self.input_dim = state_dim + action_dim
+        self.embedding = nn.Sequential(
+            nn.Linear(self.input_dim, 120),
+            nn.ReLU(),
+            nn.Linear(120, 84),
+            nn.ReLU(),
+            nn.Linear(84, 32),  # 16-dim embedding
+        )
 
-    def forward(self, x, a):
-        x = torch.cat([x, a], 1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+    def forward(self, state, action_onehot):
+        x = torch.cat([state, action_onehot], dim=-1)
+        return self.embedding(x)  # returns phi(s, a)
 
 
 class Actor(nn.Module):
     def __init__(self, env):
         super().__init__()
-        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc_mu = nn.Linear(84, np.prod(env.single_action_space.shape))
+        self.fc1 = nn.Linear(np.array(env.single_observation_space.shape).prod(), 256)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc_mu = nn.Linear(256, np.prod(env.single_action_space.shape))
         # action rescaling
         self.register_buffer(
             "action_scale", torch.tensor((env.action_space.high - env.action_space.low) / 2.0, dtype=torch.float32)
@@ -116,8 +138,16 @@ class Actor(nn.Module):
         x = F.relu(self.fc2(x))
         x = torch.tanh(self.fc_mu(x))
         return x * self.action_scale + self.action_bias
+    
+class TaskVector(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.w = nn.Parameter(torch.randn(dim))
 
-reward_data = []
+    def forward(self, phi_next):
+        w_norm = self.w / (torch.norm(self.w) + 1e-8)
+        return torch.matmul(phi_next, w_norm)
+
 if __name__ == "__main__":
     import stable_baselines3 as sb3
 
@@ -161,12 +191,35 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     actor = Actor(envs).to(device)
     qf1 = QNetwork(envs).to(device)
+    
+
+    if(args.pretrained):
+        checkpoint2 = torch.load(args.model_path)
+        sf_state_dict = checkpoint2["sfmeta_network_state_dict"]
+        mapped_state_dict = {}
+        mapped_state_dict["embedding.0.weight"] = sf_state_dict["l1.weight"]
+        mapped_state_dict["embedding.0.bias"]   = sf_state_dict["l1.bias"]
+        mapped_state_dict["embedding.2.weight"] = sf_state_dict["l2.weight"]
+        mapped_state_dict["embedding.2.bias"]   = sf_state_dict["l2.bias"]
+        mapped_state_dict["embedding.4.weight"] = sf_state_dict["l3.weight"]
+        mapped_state_dict["embedding.4.bias"]   = sf_state_dict["l3.bias"]
+        qf1.load_state_dict(mapped_state_dict)
+
     qf1_target = QNetwork(envs).to(device)
     target_actor = Actor(envs).to(device)
     target_actor.load_state_dict(actor.state_dict())
     qf1_target.load_state_dict(qf1.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()), lr=args.learning_rate)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.learning_rate)
+
+    w = torch.randn(32).to(device)
+    w = w / (w.norm() + 1e-8)
+    task_vector = TaskVector(32).to(device)
+    checkpoint1 = torch.load(args.w_path)
+    if(not args.w_random):
+        task_vector.load_state_dict(checkpoint1["task_vector"])
+    w = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
+
 
     envs.single_observation_space.dtype = np.float32
     rb = ReplayBuffer(
@@ -177,7 +230,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         handle_timeout_termination=False,
     )
     start_time = time.time()
-    total_rew=0
     # TRY NOT TO MODIFY: start the game
     obs, _ = envs.reset(seed=args.seed)
     for global_step in range(args.total_timesteps):
@@ -192,9 +244,6 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        reward_data.append((obs.copy() , actions , rewards , next_obs.copy() , terminations))
-        # total_rew+=rewards
-        # print(rewards)
 
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
@@ -220,10 +269,14 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             with torch.no_grad():
                 next_state_actions = target_actor(data.next_observations)
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
-                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (qf1_next_target).view(-1)
+                #print("1", qf1_next_target.shape, w.shape)
+                qvals_next = torch.einsum("bd,d->b", qf1_next_target, w)
+                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (qvals_next).view(-1)
 
-            qf1_a_values = qf1(data.observations, data.actions).view(-1)
-            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
+            qf1_a_values = qf1(data.observations, data.actions)
+            #print("2",qf1_a_values.shape, w.shape)
+            qvals = torch.einsum("bd,d->b", qf1_a_values, w)
+            qf1_loss = F.mse_loss(qvals, next_q_value)
 
             # optimize the model
             q_optimizer.zero_grad()
@@ -231,7 +284,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             q_optimizer.step()
 
             if global_step % args.policy_frequency == 0:
-                actor_loss = -qf1(data.observations, actor(data.observations)).mean()
+                psi = qf1(data.observations, actor(data.observations))
+                qvals1 = torch.einsum("bd,d->b", psi, w)
+                actor_loss = -qvals1.mean()
                 actor_optimizer.zero_grad()
                 actor_loss.backward()
                 actor_optimizer.step()
@@ -243,7 +298,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
 
             if global_step % 100 == 0:
-                writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
+                writer.add_scalar("losses/qf1_values", qvals.mean().item(), global_step)
                 writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
                 writer.add_scalar("losses/actor_loss", actor_loss.item(), global_step)
                 #print("SPS:", int(global_step / (time.time() - start_time)))
@@ -251,15 +306,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
             if global_step % 1000 == 0:
                 writer.add_scalar("intrinsic_rewards", data.rewards.mean(), global_step)
-    #print(f"mean reward: {total_rew/args.total_timesteps}")
 
 
-    #comment theses lines when not required
-    # print(f"Saving reward {len(reward_data)} entries")
-    # model_dir = f"runs/data/{run_name}"
-    # os.makedirs(model_dir, exist_ok=True)
-    # with open(os.path.join(model_dir, "task_regression_data.pkl"), "wb") as f:
-    #     pickle.dump(reward_data, f)
 
 
     if args.save_model:

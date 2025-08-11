@@ -141,10 +141,6 @@ if __name__ == "__main__":
         q_network.load_state_dict(mapped_state_dict)
 
 
-
-
-
-
     optimizer = optim.Adam(q_network.parameters(), lr=args.learning_rate)
     target_network = QNetwork(envs).to(device)
     target_network.load_state_dict(q_network.state_dict())
@@ -176,7 +172,7 @@ if __name__ == "__main__":
             actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
         else:
             with torch.no_grad():
-                obs_tensor = torch.tensor(obs, dtype=torch.float32).to(device)
+                obs_tensor = torch.tensor(obs, dtype=torch.float32).to(device) # change obs to tensor
                 batch_size = obs_tensor.shape[0]
                 action_dim = envs.single_action_space.n
                 action_onehots = torch.eye(action_dim, device=device).unsqueeze(0).expand(batch_size, -1, -1)
@@ -185,6 +181,7 @@ if __name__ == "__main__":
                 phi_sa = q_network(obs_expanded, action_expanded).view(batch_size, action_dim, -1)
                 qvals = torch.einsum("bad,d->ba", phi_sa, w)
                 actions = torch.argmax(qvals, dim=1).cpu().numpy()
+
 
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
         if "final_info" in infos:
