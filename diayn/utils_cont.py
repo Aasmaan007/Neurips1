@@ -231,7 +231,7 @@ def train_dqn_online(q_network, target_network, discriminator, data, device, arg
     logq_zs = torch.log(q_zs)
     logq_z = logq_zs[range(args.batch_size), true_zs]
     logpz = torch.tensor(1.0 / args.n_skills_total + 1e-6).log().to(device)  # Since discriminator trained on 25 skills
-    intrinsic_rewards = (logq_z - logpz).detach() - 0.85
+    intrinsic_rewards = (logq_z - logpz).detach() 
     #Critic Update
     with torch.no_grad():
         next_a    = target_actor(data.next_observations)

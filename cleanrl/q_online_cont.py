@@ -46,7 +46,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "Swimmer-v4"
+    env_id: str = "Walker2d-v4"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
@@ -100,6 +100,7 @@ class Args:
     '''whether to use ddqn'''
     exploration_noise: float = 0.1
     """the scale of exploration noise"""
+    model_path_disc: str = "runs/checkpoints/diayn/Walker2d-v4__diayn__1__2025-08-16_19-21-02__1755352262/latest.pth"
 
     actor_lr: float         = 3e-4    # learning rate for actor
     policy_frequency: int   = 2       # delayed actor updates
@@ -199,6 +200,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     actor_optimizer = torch.optim.Adam(actor.parameters(), lr=args.actor_lr)
     target_actor.load_state_dict(actor.state_dict())
     discriminator = Discriminator(env.observation_space.shape[0], args.n_skills_total).to(device)
+    checkpoint_disc = torch.load(args.model_path_disc)
+    discriminator.load_state_dict(checkpoint_disc["discriminator_state_dict"])
     
 
     if args.track:
@@ -228,7 +231,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     start_time = time.time()
     global_step = 0
     episode = 0
-    allowed_skills = [1, 2, 5, 6, 11, 22]
+    allowed_skills = [0, 2, 5, 10, 17, 19]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
