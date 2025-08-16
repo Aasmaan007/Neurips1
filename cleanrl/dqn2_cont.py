@@ -46,7 +46,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "Swimmer-v4"
+    env_id: str = "Walker2d-v4"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
@@ -70,7 +70,7 @@ class Args:
 
     gamma: float = 0.99
     """the discount factor gamma"""
-    q_tau: float = 1
+    tau: float = 1
     """the target network update rate"""
     target_network_frequency: int = 750
     """the timesteps it takes to update the target network"""
@@ -109,7 +109,7 @@ class Args:
     exploration_noise: float = 0.1
     """the scale of exploration noise"""
 
-    actor_lr: float         = 6e-5    # learning rate for actor
+    actor_lr: float         = 3e-4    # learning rate for actor
     policy_frequency: int   = 2       # delayed actor updates
     noise_clip: float       = 0.5     # exploration noise cap
     tau: float              = 0.005   # soft‐update coefficient
@@ -341,19 +341,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     actor_loss.backward()
                     actor_opt.step()
                     # soft‐update both targets
-                    
-                    # for p, tp in zip(q_network.parameters(), target_network.parameters()):
-                    #     tp.data.copy_(args.tau * p.data + (1 - args.tau) * tp.data)
-
-                if global_step % args.target_network_frequency == 0:
-                    for target_network_param, q_network_param in zip(target_network.parameters(), q_network.parameters()):
-                        target_network_param.data.copy_(
-                            args.q_tau * q_network_param.data + (1.0 - args.q_tau) * target_network_param.data
-                        )
                     for p, tp in zip(actor.parameters(), target_actor.parameters()):
                         tp.data.copy_(args.tau * p.data + (1 - args.tau) * tp.data)
-                
-
+                    for p, tp in zip(q_network.parameters(), target_network.parameters()):
+                        tp.data.copy_(args.tau * p.data + (1 - args.tau) * tp.data)
 
 
 
