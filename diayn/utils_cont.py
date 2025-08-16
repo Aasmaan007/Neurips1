@@ -19,7 +19,7 @@ def merge_batches(a: ReplayBufferSamples, b: ReplayBufferSamples) -> ReplayBuffe
         # infos             = a.infos + b.infos               # list concat
     )
 
-def train_dqn(q_network, target_network, discriminator, data, device, args, global_step , optimizer):
+def train_dqn(q_network, actor, target_network, target_actor, discriminator, data, device, args, global_step , critic_optimizer, actor_opt):
 
     # Extract state and next state from the replay buffer
     states = data.observations
@@ -42,28 +42,38 @@ def train_dqn(q_network, target_network, discriminator, data, device, args, glob
     #     print("logq_z (first 5):", logq_z[:5].detach().cpu().numpy())
     # Calculate Q-values and loss
     with torch.no_grad():
+        next_a    = target_actor(data.next_observations)
+        next_q    = target_network(data.next_observations, next_a).view(-1)
+        td_target = intrinsic_rewards + args.gamma * next_q * (1 - data.dones.flatten())
+        bootstrapping = args.gamma * next_q * (1 - data.dones.flatten())    
         # Step 1: Use the online network to choose the best next action
-        next_q_values_online = q_network(next_states)
-        next_actions = next_q_values_online.argmax(dim=1, keepdim=True)  # shape [batch_size, 1]
+        # next_q_values_online = q_network(next_states)
+        # next_actions = next_q_values_online.argmax(dim=1, keepdim=True)  # shape [batch_size, 1]
 
-        # Step 2: Use the target network to evaluate the value of that action
-        next_q_values_target = target_network(next_states)
-        target_q_values = next_q_values_target.gather(1, next_actions).squeeze()
+        # # Step 2: Use the target network to evaluate the value of that action
+        # next_q_values_target = target_network(next_states)
+        # target_q_values = next_q_values_target.gather(1, next_actions).squeeze()
 
-        # TD target with bootstrapping
-        td_target = intrinsic_rewards + args.gamma * target_q_values * (1 - data.dones.flatten())
-        bootstrapping = args.gamma * target_q_values * (1 - data.dones.flatten())
+        # # TD target with bootstrapping
+        # td_target = intrinsic_rewards + args.gamma * target_q_values * (1 - data.dones.flatten())
+        # bootstrapping = args.gamma * target_q_values * (1 - data.dones.flatten())
 
-    old_val = q_network(states).gather(1, data.actions).squeeze()
-    loss = F.mse_loss(td_target, old_val)
+    # old_val = q_network(states).gather(1, data.actions).squeeze()
+    # loss = F.mse_loss(td_target, old_val)
+
+    current_q    = q_network(data.observations, data.actions).view(-1)
+    critic_loss  = F.mse_loss(current_q, td_target)
+    critic_optimizer.zero_grad()
+    critic_loss.backward()
+    critic_optimizer.step()
 
     # Optimize Q-network
-    optimizer.zero_grad()
-    loss.backward()
+    # optimizer.zero_grad()
+    # loss.backward()
     # torch.nn.utils.clip_grad_norm_(q_network.parameters() , max_norm = args.grad_norm)
-    optimizer.step()
+    # optimizer.step()
 
-    return loss , old_val , intrinsic_rewards , logq_z.detach() , td_target , bootstrapping
+    return critic_loss , current_q.detach() , intrinsic_rewards , logq_z.detach() , td_target , bootstrapping
 
 
 
@@ -221,7 +231,7 @@ def train_dqn_online(q_network, target_network, discriminator, data, device, arg
     logq_zs = torch.log(q_zs)
     logq_z = logq_zs[range(args.batch_size), true_zs]
     logpz = torch.tensor(1.0 / args.n_skills_total + 1e-6).log().to(device)  # Since discriminator trained on 25 skills
-    intrinsic_rewards = (logq_z - logpz).detach() - 0.3
+    intrinsic_rewards = (logq_z - logpz).detach() - 0.85
     #Critic Update
     with torch.no_grad():
         next_a    = target_actor(data.next_observations)

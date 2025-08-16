@@ -15,8 +15,8 @@ import tyro
 @dataclass
 class Args:
     exp_name: str = "joint_phi_task"
-    env_data_path: str = "runs/data/HalfCheetah-v4__ddpg_continuous_action__1__1754573869/task_regression_data.pkl"
-    env_id: str = "HalfCheetah-v4"
+    env_data_path: str = "runs/data/Swimmer-v4__ddpg_continuous_action__1__1755330421/task_regression_data.pkl"
+    env_id: str = "Swimmer-v4"
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
@@ -31,8 +31,8 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/HalfCheetah-v4__MAML_SF__1__2025-08-07_15-29-44__1754560784/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/HalfCheetah-v4__q_online__1__2025-08-07_11-08-50__1754545130/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/Swimmer-v4__MAML_SF__1__2025-08-16_09-25-04__1755316504/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/Swimmer-v4__q_online__1__2025-08-15_21-31-57__1755273717/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
     n_skills_selected: int = 6

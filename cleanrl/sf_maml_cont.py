@@ -20,11 +20,11 @@ from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "HalfCheetah-v4"
+    env_id: str = "Swimmer-v4"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/HalfCheetah-v4__unified_collection_1__2025-08-07_15-08-06__1754559486/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/HalfCheetah-v4__q_online__1__2025-08-07_11-08-50__1754545130/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/HalfCheetah-v4__q_online__1__2025-08-07_11-08-50__1754545130/latest.pth"
+    data_path: str = "runs/data/Swimmer-v4__unified_collection_1__2025-08-16_09-13-43__1755315823/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/Swimmer-v4__q_online__1__2025-08-15_21-31-57__1755273717/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/Swimmer-v4__q_online__1__2025-08-15_21-31-57__1755273717/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
