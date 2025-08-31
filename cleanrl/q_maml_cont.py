@@ -20,11 +20,11 @@ from cleanrl.diayn.models_cont import SFNetwork, Discriminator , Critic , QNetwo
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "MountainCarContinuous-v0"
+    env_id: str = "Hopper-v4" 
     exp_name: str = "MAML_Q"
-    data_path: str = "runs/data/MountainCarContinuous-v0__unified_collection_1__2025-08-05_15-02-54__1754386374/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/MountainCarContinuous-v0__q_online__1__2025-08-03_22-02-49__1754238769/latest.pth"
+    data_path: str = "runs/data/Hopper-v4__ddpg_continuous_action__1__1755533445/task_regression_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -36,7 +36,7 @@ class Args:
     num_epochs: int = 500000
     support_size: int = 128
     query_size: int = 64
-    val_skill: int = 5
+    val_skill: int = 11
     wandb_project_name: str = "MAML_Q"
     wandb_entity: str = None
     track: bool = True
@@ -64,9 +64,11 @@ def set_seed(seed):
 
 def get_all_pairs(state_action_data, n_actions):
     all_states, all_actions = [], []
-    for state, action in state_action_data:
-        all_states.append(state)
-        all_actions.append(action)
+    for state, action,reward, next_state,dones in state_action_data:
+        state = np.array(state).squeeze()
+        action = np.array(action).squeeze()
+        all_states.append(np.array(state))
+        all_actions.append(np.array(action))
     return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)    
     # all_states, all_actions = [], []
     # for s in states:
@@ -81,9 +83,9 @@ def partition_full_dataset(states, actions, support_fraction):
     total_samples = states.size(0)
     indices = torch.randperm(total_samples)
 
-    num_support = int(total_samples * support_fraction)
+    num_support = int(total_samples)
     support_idx = indices[:num_support]
-    query_idx = indices[num_support:]
+    query_idx = indices[:num_support]
 
     s_sup = states[support_idx]
     a_sup = actions[support_idx]
@@ -215,14 +217,15 @@ def train():
         np.random.shuffle(state_action_data)
     # state_data = np.array(state_data)
     # np.random.shuffle(state_data)
-    state_action_data = np.array(state_action_data)
-    np.random.shuffle(state_action_data)
+    #state_action_data = np.array(state_action_data)
+    #np.random.shuffle(state_action_data)
 
     env = gym.make(args.env_id)
     state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
     
     discriminator = Discriminator(state_dim, args.n_skills_total)
-    #discriminator.load_state_dict(torch.load(args.disc_path)['discriminator_state_dict'])
+    discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
     discriminator = discriminator.to(device)
 
     qnet = Critic(env , args.n_skills_selected)
@@ -251,7 +254,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1 ,2, 5, 6, 11, 22]
+    allowed_skills = [1 ,1, 1, 11, 11, 11]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
@@ -267,12 +270,13 @@ def train():
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         # skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
+        #skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
+        skills_this_epoch = random.sample([z for z in allowed_skills ], args.n_skills_epoch)
         # skills_this_epoch = [6]
         for z in skills_this_epoch:
             
-            if z == args.val_skill:
-                continue
+            #if z == args.val_skill:
+            #    continue
 
             z_ind =  true_skill_to_model_idx[z]
 

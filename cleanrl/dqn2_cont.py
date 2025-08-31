@@ -46,7 +46,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "Walker2d-v4"
+    env_id: str = "Pusher-v4"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
@@ -189,7 +189,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() and args.cuda else "cpu")
     print("-----------------------------------------------------------------------------------------------------------------------------------------------")
     print("Using device:", device)
 
@@ -302,7 +302,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step > args.learning_starts:
                 
                 if(global_step % args.train_frequency == 0):
-                    if not args.env_id=="Swimmer-v4":
+                    if args.env_id!="Swimmer-v4" and (rb_terminal.size()) !=0:
                         maindata = rb.sample(args.batch_size - args.batch_size_terminal)
                         dataterminal = rb_terminal.sample(args.batch_size_terminal)
                         data = merge_batches(maindata , dataterminal)

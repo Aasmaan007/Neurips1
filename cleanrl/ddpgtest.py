@@ -20,7 +20,7 @@ import pickle
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 81
+    seed: int = 35
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -42,7 +42,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "Swimmer-v4"
+    env_id: str = "Hopper-v4"
     """the environment id of the Atari game"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
@@ -64,8 +64,8 @@ class Args:
     """the frequency of training policy (delayed)"""
     noise_clip: float = 0.5
     """noise clip parameter of the Target Policy Smoothing Regularization"""
-    w_path: str  = "runs/checkpoints/env_phi_task/Swimmer-v4__joint_phi_task__1__2025-08-16_13-44-44/latest.pth"
-    model_path = "runs/checkpoints/maml/Swimmer-v4__MAML_SF__1__2025-08-16_09-25-04__1755316504/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/Hopper-v4__joint_phi_task__1__2025-08-20_01-59-52/latest.pth"
+    model_path = "runs/checkpoints/maml/Hopper-v4__MAML_SF__1__2025-08-19_23-42-42__1755627162/latest.pth"
     w_random: bool = False
     pretrained: bool = True
 
@@ -183,7 +183,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
 
-    device = torch.device("cuda" if torch.cuda.is_available() and args.cuda else "cpu")
+    device = torch.device("cuda:1" if torch.cuda.is_available() and args.cuda else "cpu")
 
     # env setup
     envs = gym.vector.SyncVectorEnv([make_env(args.env_id, args.seed, 0, args.capture_video, run_name)])
@@ -245,6 +245,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
+        #rewards = rewards #* 100  # <-- Scale up rewards by 100
+
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
             for info in infos["final_info"]:
@@ -271,12 +273,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
                 #print("1", qf1_next_target.shape, w.shape)
                 qvals_next = torch.einsum("bd,d->b", qf1_next_target, w)
+                qvals_next = torch.where(qvals_next > 300, torch.tensor(0.01, device=qvals_next.device), qvals_next)
                 next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (qvals_next).view(-1)
 
             qf1_a_values = qf1(data.observations, data.actions)
             #print("2",qf1_a_values.shape, w.shape)
             qvals = torch.einsum("bd,d->b", qf1_a_values, w)
+            # qvals = torch.where(qvals > 500, torch.tensor(0.5, device=qvals.device), qvals) # <-- Clip to -550 minimum
             qf1_loss = F.mse_loss(qvals, next_q_value)
+            qf1_loss = torch.clamp(qf1_loss, max=200)
 
             # optimize the model
             q_optimizer.zero_grad()
@@ -286,7 +291,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step % args.policy_frequency == 0:
                 psi = qf1(data.observations, actor(data.observations))
                 qvals1 = torch.einsum("bd,d->b", psi, w)
+                qvals1 = torch.where(qvals1 > 300, torch.tensor(0.01, device=qvals1.device), qvals1)
                 actor_loss = -qvals1.mean()
+                 # <-- Clip to -550 minimum
+                # actor_loss = torch.clamp(actor_loss, min=-550)  # <-- Clip to -550 minimum
                 actor_optimizer.zero_grad()
                 actor_loss.backward()
                 actor_optimizer.step()

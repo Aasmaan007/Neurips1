@@ -7,10 +7,10 @@ from dataclasses import dataclass
 
 @dataclass
 class Args:
-    sf_dir: str = "halfcheetah_sf"
-    q_dir: str = "halfcheetah_q"
-    reward_threshold: float = 9500
-    patience: int =10
+    sf_dir: str = "swimmer_sf"
+    q_dir: str = "swimmer_q"
+    reward_threshold: float = 50
+    patience: int = 10
 
 # === SF EXTRACT ===
 def extract_sf_seed_pretrained(filename):
@@ -31,7 +31,7 @@ def find_convergence_timestep(path, threshold, patience):
     for i in range(len(rewards) - patience + 1):
         if all(rewards[i:i+patience] >= threshold):
             return steps[i]
-    return 500000  # fallback
+    return 1000000  # fallback
 
 # === SF Loader ===
 def load_sf_convergence(args: Args):

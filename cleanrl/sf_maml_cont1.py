@@ -14,7 +14,7 @@ import tyro
 import gymnasium as gym
 import wandb
 
-from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor, Critic
+from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor, Critic #, SFNetworkbig
 
 @dataclass
 class Args:
@@ -22,9 +22,9 @@ class Args:
     cuda: bool = True
     env_id: str = "Hopper-v4"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/Hopper-v4__ddpg_continuous_action__1__1755533445/task_regression_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
+    data_path: str = "runs/data/Hopper-v4__unified_collection_1__2025-08-19_12-03-05__1755585185/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_00-13-10__1755542590/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_00-13-10__1755542590/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -64,13 +64,10 @@ def set_seed(seed):
 
 def get_all_pairs(state_action_data, n_actions):
     all_states, all_actions = [], []
-    for state, action,reward, next_state,dones in state_action_data:
-        state = np.array(state).squeeze()
-        action = np.array(action).squeeze()
-        all_states.append(np.array(state))
-        all_actions.append(np.array(action))
-    #print(all_states[0].shape)
-    #print(all_actions[0].shape)
+    for state, action in state_action_data:
+        all_states.append(state)
+        all_actions.append(action)
+    print(all_states[0].shape, all_actions[0].shape)
     return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)    
     
     # for s in states:
@@ -85,9 +82,9 @@ def partition_full_dataset(states, actions, support_fraction):
     total_samples = states.size(0)
     indices = torch.randperm(total_samples)
 
-    num_support = int(total_samples)
+    num_support = int(total_samples * support_fraction)
     support_idx = indices[:num_support]
-    query_idx = indices[:num_support]
+    query_idx = indices[num_support:]
 
     s_sup = states[support_idx]
     a_sup = actions[support_idx]
@@ -100,7 +97,6 @@ def partition_full_dataset(states, actions, support_fraction):
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
     z_one_hot[z] = 1.0
-    #s = np.asarray(s).squeeze()  # Ensure s is 1D
     return np.concatenate([s, z_one_hot], axis=-1)
 
 def get_q_values(qnet, states, actions, z, n_skills, device):
@@ -213,8 +209,8 @@ def train():
         np.random.shuffle(state_action_data)
     # state_data = np.array(state_data)
     # np.random.shuffle(state_data)
-    #state_action_data = np.array(state_action_data, dtype=object)
-    #np.random.shuffle(state_action_data)
+    state_action_data = np.array(state_action_data)
+    np.random.shuffle(state_action_data)
 
     env = gym.make(args.env_id)
     state_dim = env.observation_space.shape[0]
@@ -251,7 +247,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1, 1, 1, 11, 11, 11]
+    allowed_skills = [1 ,5, 11, 12, 16, 19]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
@@ -267,7 +263,7 @@ def train():
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         # skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        skills_this_epoch = random.sample([z for z in allowed_skills ], args.n_skills_epoch)
+        skills_this_epoch = random.sample([z for z in allowed_skills], args.n_skills_epoch)
         # skills_this_epoch = [6]
         for z in skills_this_epoch:
             
@@ -410,4 +406,3 @@ def train():
 
 if __name__ == "__main__":
     train()
-    

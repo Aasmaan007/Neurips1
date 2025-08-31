@@ -14,17 +14,17 @@ import tyro
 import gymnasium as gym
 import wandb
 
-from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor, Critic
+from cleanrl.diayn.models_cont import SFNetwork, Discriminator , Critic , QNetworkMaml, Actor
 
 @dataclass
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "Hopper-v4"
-    exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/Hopper-v4__ddpg_continuous_action__1__1755533445/task_regression_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
+    env_id: str = "Hopper-v4" 
+    exp_name: str = "MAML_Q"
+    data_path: str = "runs/data/Hopper-v4__unified_collection_1__2025-08-19_12-03-05__1755585185/task_regression_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_00-13-10__1755542590/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_00-13-10__1755542590/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -37,7 +37,7 @@ class Args:
     support_size: int = 128
     query_size: int = 64
     val_skill: int = 11
-    wandb_project_name: str = "MAML_SF"
+    wandb_project_name: str = "MAML_Q"
     wandb_entity: str = None
     track: bool = True
     multi_step_loss: bool = False
@@ -64,15 +64,13 @@ def set_seed(seed):
 
 def get_all_pairs(state_action_data, n_actions):
     all_states, all_actions = [], []
-    for state, action,reward, next_state,dones in state_action_data:
+    for state, action in state_action_data:
         state = np.array(state).squeeze()
         action = np.array(action).squeeze()
-        all_states.append(np.array(state))
-        all_actions.append(np.array(action))
-    #print(all_states[0].shape)
-    #print(all_actions[0].shape)
+        all_states.append(state)
+        all_actions.append(action)
     return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)    
-    
+    # all_states, all_actions = [], []
     # for s in states:
     #     for a in range(n_actions):
     #         all_states.append(s)
@@ -85,9 +83,9 @@ def partition_full_dataset(states, actions, support_fraction):
     total_samples = states.size(0)
     indices = torch.randperm(total_samples)
 
-    num_support = int(total_samples)
+    num_support = int(total_samples * support_fraction)
     support_idx = indices[:num_support]
-    query_idx = indices[:num_support]
+    query_idx = indices[num_support:]
 
     s_sup = states[support_idx]
     a_sup = actions[support_idx]
@@ -100,7 +98,6 @@ def partition_full_dataset(states, actions, support_fraction):
 def concat_state_latent(s, z, n_skills):
     z_one_hot = np.zeros(n_skills, dtype=np.float32)
     z_one_hot[z] = 1.0
-    #s = np.asarray(s).squeeze()  # Ensure s is 1D
     return np.concatenate([s, z_one_hot], axis=-1)
 
 def get_q_values(qnet, states, actions, z, n_skills, device):
@@ -110,11 +107,12 @@ def get_q_values(qnet, states, actions, z, n_skills, device):
         state_aug = np.array([concat_state_latent(s, z, n_skills) for s in states_np])
         state_aug = torch.tensor(state_aug, dtype=torch.float32).to(device)
         actions = actions.to(device) if isinstance(actions, torch.Tensor) else torch.tensor(actions, dtype=torch.float32).to(device)
+        #print(state_aug.shape, actions.shape)  # Should be [B, state_dim + n_skills]
+        #actions = actions.unsqueeze(1) if actions.dim() == 1 else actions
         qvals = qnet(state_aug, actions)  # shape: (B, num_actions)
-        # qvals = qnet(state_aug)  # shape: (B, num_actions)
         # action_indices = torch.argmax(actions, dim=1).view(-1, 1)  # shape: (B, 1)
         # q_selected = qvals.gather(1, action_indices).squeeze()  # shape: (B,)
-        return qvals.squeeze()
+        return qvals.squeeze()  # shape: (B,)
 
 
 
@@ -129,7 +127,11 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
     q_pred_query = []
 
     for step in range(num_steps):
-        q_pred_sup = model.argforward(s_sup, a_sup, fast_weights, w_z)
+        q_values_sup = model.argforward(s_sup, a_sup, fast_weights)  # shape: [B, num_actions]
+        #action_indices_sup = torch.argmax(a_sup, dim=1).unsqueeze(1)  # shape: [B, 1]
+        #q_pred_sup = q_values_sup.gather(1, action_indices_sup).squeeze(1)  # shape: [B]
+        q_pred_sup = q_values_sup.squeeze()
+
         q_pred_supp.append(q_pred_sup.mean().item())
         innerloss = criterion(q_sup, q_pred_sup)
         step_inner_losses.append(innerloss)
@@ -152,7 +154,11 @@ def maml_inner_loop(model, criterion, s_sup, a_sup, s_que, a_que,
         else :
             fast_weights = [w - inner_lr * g for w, g in zip(fast_weights, grads)]
 
-        q_pred_que = model.argforward(s_que, a_que, fast_weights, w_z)
+        q_values_que = model.argforward(s_que, a_que, fast_weights)
+        #action_indices_que = torch.argmax(a_que, dim=1).unsqueeze(1)
+        #q_pred_que = q_values_que.gather(1, action_indices_que).squeeze(1)
+        q_pred_que = q_values_que.squeeze()
+
         q_pred_query.append(q_pred_que.mean().item())
         outer_loss = criterion(q_que, q_pred_que)
         step_outer_losses.append(outer_loss)
@@ -187,7 +193,7 @@ def get_per_step_loss_weights(args: Args, current_epoch: int):
 def train():
     args = tyro.cli(Args)
     set_seed(args.seed)
-    device = torch.device("cuda:1" if args.cuda and torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
 
     timestamp = int(time.time())
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{time.strftime('%Y-%m-%d_%H-%M-%S')}__{timestamp}"
@@ -213,8 +219,8 @@ def train():
         np.random.shuffle(state_action_data)
     # state_data = np.array(state_data)
     # np.random.shuffle(state_data)
-    #state_action_data = np.array(state_action_data, dtype=object)
-    #np.random.shuffle(state_action_data)
+    state_action_data = np.array(state_action_data)
+    np.random.shuffle(state_action_data)
 
     env = gym.make(args.env_id)
     state_dim = env.observation_space.shape[0]
@@ -227,17 +233,16 @@ def train():
     qnet = Critic(env , args.n_skills_selected)
     qnet.load_state_dict(torch.load(args.qnet_path)['q_network_state_dict'])
     qnet = qnet.to(device)
+    #actor = Actor(env, args.n_skills_selected)
+    #actor.load_state_dict(torch.load(args.qnet_path)['actor_state_dict'])
+    #actor = actor.to(device)
     
     
-    model = SFNetwork(state_dim, action_dim, sf_dim=args.sf_dim).to(device)
+    model = QNetworkMaml(env).to(device)
     meta_opt = optim.Adam(model.parameters(), lr=args.outer_lr)
     criterion = nn.MSELoss()
 
-    dummy_state  = torch.zeros(1, state_dim, device=device)
-    dummy_action = torch.zeros(1, action_dim, device=device)
-    dummy_task   = torch.zeros(args.sf_dim,   device=device)
-    _ = model(dummy_state, dummy_action, dummy_task)
-
+ 
     if(args.track):
         wandb.watch(
             models = [model],
@@ -251,7 +256,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1, 1, 1, 11, 11, 11]
+    allowed_skills = [1 ,5, 11, 12, 16, 19]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
@@ -267,6 +272,7 @@ def train():
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         # skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
+        #skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
         skills_this_epoch = random.sample([z for z in allowed_skills ], args.n_skills_epoch)
         # skills_this_epoch = [6]
         for z in skills_this_epoch:
@@ -393,21 +399,20 @@ def train():
                 wandb.log({f"weights/{name}": wandb.Histogram(p.detach().cpu())}, step=epoch)
             print(f"Epoch number {epoch} completed")
 
-            if(epoch % 50000 == 0):
-                model_dir = f"runs/checkpoints/maml/{run_name}"
+            if(epoch % 2500 == 0):
+                model_dir = f"runs/checkpoints/qmaml/{run_name}"
                 os.makedirs(model_dir, exist_ok=True)
                 torch.save({
-                        "sfmeta_network_state_dict": model.state_dict(),
+                        "qmeta_network_state_dict": model.state_dict(),
                     }, os.path.join(model_dir, f"latest.pth"))
 
 
-    model_dir = f"runs/checkpoints/maml/{run_name}"
+    model_dir = f"runs/checkpoints/qmaml/{run_name}"
     os.makedirs(model_dir, exist_ok=True)
     torch.save({
-            "sfmeta_network_state_dict": model.state_dict(),
+            "qmeta_network_state_dict": model.state_dict(),
         }, os.path.join(model_dir, f"latest.pth"))
 
 
 if __name__ == "__main__":
     train()
-    

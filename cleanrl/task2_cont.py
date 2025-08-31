@@ -15,8 +15,8 @@ import tyro
 @dataclass
 class Args:
     exp_name: str = "joint_phi_task"
-    env_data_path: str = "runs/data/Swimmer-v4__ddpg_continuous_action__1__1755330421/task_regression_data.pkl"
-    env_id: str = "Swimmer-v4"
+    env_data_path: str = "runs/data/Hopper-v4__ddpg_continuous_action__1__1755533445/task_regression_data.pkl"
+    env_id: str = "Hopper-v4"
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
@@ -31,8 +31,8 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/Swimmer-v4__MAML_SF__1__2025-08-16_09-25-04__1755316504/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/Swimmer-v4__q_online__1__2025-08-15_21-31-57__1755273717/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/Hopper-v4__MAML_SF__1__2025-08-19_23-42-42__1755627162/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
     n_skills_selected: int = 6
@@ -136,7 +136,7 @@ def train():
         for batch_idx, (s, a, r, snext, terminated) in enumerate(task_loader):
             s = s.to(device)
             a = a.to(device)
-            r = r.to(device)
+            r = r.to(device) #* 100
             snext = snext.to(device)
             terminated = terminated.to(device)
 
@@ -147,10 +147,6 @@ def train():
                     skill_vec = torch.full((snext.size(0),), skill_idx, dtype=torch.long, device=device)
                     s_aug = concat_state_latent_batch(snext, skill_vec, args.n_skills_selected)
 
-
-
-
-
                     # q_values = qnet(s_aug)
                     # a_next = torch.argmax(q_values, dim=1)
                     # a_next_onehot = F.one_hot(a_next, num_classes=dummy_env.action_space.n).float().to(device)
@@ -158,17 +154,13 @@ def train():
                     snext = snext.squeeze(1)
                     # a_onehot = a_onehot.squeeze(1)
 
-
                     state_tensor = torch.tensor(s_aug, dtype=torch.float32).unsqueeze(0).to(device)
                     with torch.no_grad():
                         mu = actor(state_tensor).cpu().numpy().squeeze(0)
                         noise = np.random.normal(0, args.exploration_noise, size=mu.shape)
                         noise = np.clip(noise, -args.noise_clip, args.noise_clip)
                         action = np.clip(mu + noise, dummy_env.action_space.low, dummy_env.action_space.high)
-                
-
-
-
+            
                     # print(snext.shape)
                     # print(s.shape)
                     # print(a_next_onehot.shape)
