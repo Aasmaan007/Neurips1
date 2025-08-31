@@ -1,5 +1,6 @@
 import gymnasium as gym
 import numpy as np
+import gym_windy_gridworlds
 from torch.utils.tensorboard import SummaryWriter
 from datetime import datetime
 from dataclasses import dataclass
@@ -7,30 +8,32 @@ import tyro
 import wandb
 from pprint import pformat
 import random
+from gymnasium.wrappers import TimeLimit
+
 
 # =================== ARGS ===================
 @dataclass
 class Args:
-    env_id: str = "MountainCar-v0"
-    code_for: str = "double_coupled_lfa"
+    env_id: str = "WindyGridWorld-v0"
+    code_for: str = "double_coupled"
     alpha: float = 0.0001
-    beta: float = 0.0005
+    beta: float = 0.01
     gamma: float = 0.99
     epsilon_start: float = 1
     epsilon_final: float = 0.05
-    exploration_fraction: float = 0.5
-    num_episodes: int = 2000
+    exploration_fraction: float = 0.3
+    num_episodes: int = 5000
     l: int = 2
-    log_base_dir: str = "runs/dc_lfa"
-    eta: float = 0.25
+    log_base_dir: str = "runs/comp"
+    eta: float = 0.5
     seed: int = 42
 
-# =================== SWEEP CONFIG ===================
+#full list:  [0.0001, 0.0005, 0.001, 0.005, 0.01]
 
 sweep_config = {
     "method": "grid",
     "parameters": {
-        "alpha": {"values": [0.001, 0.005]},
+        "alpha": {"values": [0.0005]},
         "beta": {"values": [0.0001, 0.0005, 0.001, 0.005, 0.01]},
         "eta": {"values": [0.125, 0.25, 0.5, 1.0]},
         "exploration_fraction": {"values": [0.2, 0.3, 0.4, 0.5, 0.6, 0.8]},
@@ -43,11 +46,13 @@ def run_training(args):
     random.seed(args.seed)
     np.random.seed(args.seed)
     
-    env = gym.make(args.env_id)
+    env = gym.make(args.env_id, render_mode="human")
+    env = TimeLimit(env, 200)
     env.reset(seed=args.seed)   # seed the environment
     env.action_space.seed(args.seed)  # seed action sampling if used
 
     n_actions = env.action_space.n
+    
     obs_dim = env.observation_space.shape[0]
     log_name = f"{args.code_for}_{args.env_id}_rbf_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     writer = SummaryWriter(log_dir=f"{args.log_base_dir}/{log_name}")
@@ -124,14 +129,16 @@ def run_training(args):
             td_target1 = reward + args.gamma * q_next1
             td_error1 = td_target1 - q_value_v(state, action)
 
+            weights_u[action] += args.alpha * ((phi(state) * q_value_v(state, action)) - weights_u[action])
+            weights_v[action] += args.beta * td_error1 * phi(state)
+
 
             next_action2 = np.argmax([q_value_u(next_state, a) for a in range(n_actions)])
             q_next2 = q_value_w1(next_state, next_action2)
             td_target2 = reward + args.gamma * q_next2
             td_error2 = td_target2 - q_value_w2(state, action)
 
-            weights_u[action] += args.alpha * ((phi(state) * q_value_v(state, action)) - weights_u[action])
-            weights_v[action] += args.beta * td_error1 * phi(state)
+            
 
             weights_w1[action] += args.alpha * ((phi(state) * q_value_w2(state, action)) - weights_w1[action])
             weights_w2[action] += args.beta * td_error2 * phi(state)  
@@ -174,7 +181,7 @@ def train_sweep(config=None):
     with wandb.init(config=config):
         config = wandb.config
         args = Args(
-            env_id="MountainCar-v0",
+            env_id="WindyGridWorld-v0",
             code_for="coupled_lfa",
             alpha=config.alpha,
             beta=config.beta,
@@ -196,7 +203,7 @@ if __name__ == "__main__":
 
     if "sweep" in sys.argv:
         wandb.login()
-        sweep_id = wandb.sweep(sweep_config, project="double_coupled_v2")
+        sweep_id = wandb.sweep(sweep_config, project="double_coupled_windygridworldx2")
         wandb.agent(sweep_id, function=train_sweep)
     else:
         args = tyro.cli(Args)

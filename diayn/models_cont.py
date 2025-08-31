@@ -69,6 +69,29 @@ class Discriminator(nn.Module, ABC):
         x = F.relu(self.hidden2(x))
         logits = self.q(x)
         return logits
+    
+class Discriminatorbig(nn.Module, ABC):
+    def __init__(self, n_states, n_skills):
+        super(Discriminatorbig, self).__init__()
+        self.input_dim = n_states
+        self.hidden1 = nn.Linear(n_states, 256)
+        init_weight(self.hidden1)
+
+        self.hidden2 = nn.Linear(256, 120)
+        init_weight(self.hidden2)
+
+        self.hidden3 = nn.Linear(120, 32)
+        init_weight(self.hidden3)
+
+        self.q = nn.Linear(32, n_skills)
+        init_weight(self.q, initializer="xavier uniform")
+
+    def forward(self, states):
+        x = F.relu(self.hidden1(states))
+        x = F.relu(self.hidden2(x))
+        x = F.relu(self.hidden3(x))
+        logits = self.q(x)
+        return logits
 
 class QNetwork(nn.Module):
     def __init__(self, env , nskills):
@@ -184,6 +207,56 @@ class SFNetwork(nn.Module):
         x = F.relu(self.l1(x))
         x = F.relu(self.l2(x))
         return self.l3(x)
+    
+class SFNetworkbig(nn.Module):
+    def __init__(self, state_dim, action_dim, sf_dim=32):
+        super(SFNetworkbig, self).__init__()
+        self.input_dim = state_dim + action_dim
+        self.sf_dim = sf_dim
+
+        self.l1 = nn.Linear(self.input_dim, 200)
+        self.l2 = nn.Linear(200, 120)
+        self.l3 = nn.Linear(120, 84)
+        self.l4 = nn.Linear(84, sf_dim)
+
+
+    def argforward(self, state, action, weights , task):
+        x = torch.cat([state, action], dim=-1)
+        x = F.linear(x, weights[0], weights[1])
+        x = F.relu(x)
+        x = F.linear(x, weights[2], weights[3])
+        x = F.relu(x)
+        x = F.linear(x, weights[4], weights[5])
+        x = F.relu(x)
+        x = F.linear(x, weights[6], weights[7])
+        task = task.unsqueeze(0).expand(x.size(0), -1)
+        q_pred = torch.einsum("bi,bi->b", task, x)
+        return q_pred
+    
+    def forward(self, state, action, task):
+        """
+        Plain forward with the *current* parameters.
+        This is what wandb will capture in its graph.
+        """
+        x = torch.cat([state, action], dim=-1)
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
+        x = self.l4(x)
+        # broadcast task to batch:
+        task = task.unsqueeze(0).expand(x.size(0), -1)
+        return torch.einsum("bi,bi->b", task, x)
+    
+    def sf_vector(self, state, action):
+        """
+        Computes raw SF vector from (state, action) pair without applying task weights.
+        Used for computing phi(s') using Bellman residual.
+        """
+        x = torch.cat([state, action], dim=-1)
+        x = F.relu(self.l1(x))
+        x = F.relu(self.l2(x))
+        x = F.relu(self.l3(x))
+        return self.l4(x)
 
 class QNetworkSaml(nn.Module):
     def __init__(self, env):

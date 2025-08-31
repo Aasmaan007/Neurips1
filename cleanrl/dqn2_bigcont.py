@@ -15,7 +15,7 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
-from cleanrl.diayn.models_cont import Discriminator, QNetwork, Actor, Critic
+from cleanrl.diayn.models_cont import Discriminatorbig, QNetwork, Actor, Critic
 from cleanrl.diayn.utils_cont import train_dqn, train_discriminator , test_dqn ,  merge_batches
 from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
@@ -46,7 +46,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "InvertedDoublePendulum-v4"
+    env_id: str = "Ant-v4"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""
@@ -207,7 +207,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     target_actor = Actor(env , args.n_skills).to(device)
     target_actor.load_state_dict(actor.state_dict())
 
-    discriminator = Discriminator(env.observation_space.shape[0], args.n_skills ).to(device)
+    discriminator = Discriminatorbig(env.observation_space.shape[0], args.n_skills ).to(device)
     discriminator_opt = optim.Adam(discriminator.parameters(), lr=args.learning_rate_discriminator)
     cross_ent_loss = torch.nn.CrossEntropyLoss()
 

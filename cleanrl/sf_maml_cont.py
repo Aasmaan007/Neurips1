@@ -14,17 +14,17 @@ import tyro
 import gymnasium as gym
 import wandb
 
-from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor, Critic
+from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor, Critic, SFNetworkbig
 
 @dataclass
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "Swimmer-v4"
+    env_id: str = "Walker2d-v4"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/Swimmer-v4__unified_collection_1__2025-08-16_09-13-43__1755315823/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/Swimmer-v4__q_online__1__2025-08-15_21-31-57__1755273717/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/Swimmer-v4__q_online__1__2025-08-15_21-31-57__1755273717/latest.pth"
+    data_path: str = "runs/data_qonline/Walker2d-v4__q_online__1__2025-08-19_13-43-00__1755591180/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/Walker2d-v4__q_online__1__2025-08-19_13-43-00__1755591180/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/Walker2d-v4__q_online__1__2025-08-19_13-43-00__1755591180/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -36,7 +36,7 @@ class Args:
     num_epochs: int = 500000
     support_size: int = 128
     query_size: int = 64
-    val_skill: int = 5
+    val_skill: int = 11
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
@@ -67,6 +67,7 @@ def get_all_pairs(state_action_data, n_actions):
     for state, action in state_action_data:
         all_states.append(state)
         all_actions.append(action)
+    print(all_states[0].shape, all_actions[0].shape)
     return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)    
     
     # for s in states:
@@ -246,7 +247,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1 ,2, 5, 6, 11, 22]
+    allowed_skills = [11 ,11, 11, 12, 12, 12]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
@@ -262,12 +263,12 @@ def train():
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         # skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
+        skills_this_epoch = random.sample([z for z in allowed_skills], args.n_skills_epoch)
         # skills_this_epoch = [6]
         for z in skills_this_epoch:
             
-            if z == args.val_skill:
-                continue
+            #if z == args.val_skill:
+            #    continue
 
             z_ind =  true_skill_to_model_idx[z]
 

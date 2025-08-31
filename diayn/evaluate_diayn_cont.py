@@ -5,7 +5,7 @@ import gymnasium as gym
 import numpy as np
 from dataclasses import dataclass
 from torch.utils.tensorboard import SummaryWriter
-from cleanrl.diayn.models_cont import Discriminator, QNetwork, Critic, Actor
+from cleanrl.diayn.models_cont import Discriminator, Discriminatorbig, QNetwork, Critic, Actor
 from cleanrl.cleanrl.dqn2_cont import concat_state_latent
 from gymnasium.wrappers.record_video import RecordVideo
 from gymnasium.wrappers import TimeLimit
@@ -19,38 +19,38 @@ class Args:
     seed: int = 10
     cuda: bool = True
     capture_video: bool = True
-    env_id: str = "Swimmer-v4"
+    env_id: str = "InvertedPendulum-v4"
     n_skills: int = 25
-    eval_episodes_per_skill: int = 6
-    model_path: str = "runs/checkpoints/diayn/Swimmer-v4__diayn__1__2025-08-16_19-32-07__1755352927/latest.pth"
+    eval_episodes_per_skill: int = 4
+    model_path: str = "runs/checkpoints/diayn/InvertedPendulum-v4__diayn__1__2025-08-17_01-00-54__1755372654/latest.pth"
     wandb_project_name: str = "Diayn_LunarLander_Evaluate"
     wandb_entity: str = None
     track: bool = True
     max_timesteps: int = 1000
-    record_every_x_episode: int = 2
+    record_every_x_episode: int = 4
     
 
-def make_env(env_id, seed, skill, run_name, capture_video, record_every_x_episodes):
-    """Creates the environment for each skill and records video every 'x' episodes as specified."""
-    
+def make_env(env_id, seed, skill, run_name, capture_video, record_every_x_episodes, episode=None):
     def episode_trigger(episode_id):
-        """Trigger recording every 'record_every_x_episodes' episodes."""
         return episode_id % record_every_x_episodes == 0
 
     def thunk():
         env = gym.make(env_id, render_mode="rgb_array")
-        env = TimeLimit(env, args.max_timesteps)
         if capture_video:
             video_folder = os.path.join("videos", run_name)
-            name_prefix = f"skill_{skill}"
+            # Make name_prefix unique per skill and episode
+            if episode is not None:
+                name_prefix = f"skill_{skill}_ep_{episode}"
+            else:
+                name_prefix = f"skill_{skill}"
             env = RecordVideo(
                 env,
                 video_folder=video_folder,
-                episode_trigger=episode_trigger,  # Use custom episode trigger
+                episode_trigger=episode_trigger,
                 name_prefix=name_prefix
             )
         env = gym.wrappers.RecordEpisodeStatistics(env)
-        env.action_space.seed(seed + skill)  # seed different per skill
+        env.action_space.seed(seed + skill)
         return env
 
     return thunk
@@ -59,8 +59,9 @@ def make_env(env_id, seed, skill, run_name, capture_video, record_every_x_episod
 def evaluate_skill_policy(q_network, actor, env_fn, device, skill, n_skills, eval_episodes, timesteps):
     """Evaluate the policy for a given skill using one environment for the entire skill."""
     returns = []
-    env = env_fn(skill)()  # Create the environment only once per skill
+    #env = env_fn(skill)()  # Create the environment only once per skill
     for ep in range(eval_episodes):
+        env = env_fn(skill, ep)()  # Create a new environment for each episode
         obs, _ = env.reset(seed = args.seed+ep+skill)
         obs = concat_state_latent(obs, skill, n_skills)
         episode_return = 0
@@ -69,14 +70,16 @@ def evaluate_skill_policy(q_network, actor, env_fn, device, skill, n_skills, eva
                 # obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
                 # action = torch.argmax(q_network(obs_tensor), dim=1).item()
                 obs_tensor = torch.tensor(obs, dtype=torch.float32).unsqueeze(0).to(device)
-                action = actor(obs_tensor).squeeze().cpu().numpy()  # Convert to numpy after squeezing
+                #action = actor(obs_tensor).cpu().numpy().reshape(-1)  # Convert to numpy after squeezing
+                action = actor(obs_tensor).cpu().numpy().reshape(env.action_space.shape)
             next_obs, reward, termination, truncation, _ = env.step(action)
             obs = concat_state_latent(next_obs, skill, n_skills)
             episode_return += reward
             if termination or truncation:
                 break
         returns.append(episode_return)
-    env.close()
+        env.close()
+    #env.close()
     return sum(returns) / len(returns) , returns
 
 
@@ -102,7 +105,7 @@ if __name__ == "__main__":
 
     
     # Create env factory for each skill (creates only one environment per skill)
-    env_fn = lambda skill: make_env(args.env_id, args.seed, skill, run_name, capture_video=args.capture_video , record_every_x_episodes = args.record_every_x_episode)
+    env_fn = lambda skill, ep: make_env(args.env_id, args.seed, skill, run_name, capture_video=args.capture_video , record_every_x_episodes = args.record_every_x_episode, episode = ep)
 
     # Initialize the model
     temp_env = gym.make(args.env_id)

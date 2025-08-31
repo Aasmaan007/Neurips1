@@ -20,7 +20,7 @@ import pickle
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 81
+    seed: int = 94
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -42,7 +42,7 @@ class Args:
     """the user or org name of the model repository from the Hugging Face Hub"""
 
     # Algorithm specific arguments
-    env_id: str = "Swimmer-v4"
+    env_id: str = "Walker2d-v4"
     """the environment id of the Atari game"""
     total_timesteps: int = 1000000
     """total timesteps of the experiments"""
@@ -64,8 +64,8 @@ class Args:
     """the frequency of training policy (delayed)"""
     noise_clip: float = 0.5
     """noise clip parameter of the Target Policy Smoothing Regularization"""
-    w_path: str  = "runs/checkpoints/env_phi_task/Swimmer-v4__joint_phi_task__1__2025-08-16_13-44-44/latest.pth"
-    model_path = "runs/checkpoints/maml/Swimmer-v4__MAML_SF__1__2025-08-16_09-25-04__1755316504/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/Walker2d-v4__joint_phi_task__1__2025-08-20_00-15-44/latest.pth"
+    model_path = "runs/checkpoints/maml/Walker2d-v4__MAML_SF__1__2025-08-19_22-18-58__1755622138/latest.pth"
     w_random: bool = False
     pretrained: bool = True
 

@@ -22,6 +22,7 @@ from gymnasium.wrappers import TimeLimit
 
 
 from collections import defaultdict
+import pickle
 
 
 
@@ -231,17 +232,17 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     start_time = time.time()
     global_step = 0
     episode = 0
-    allowed_skills = [0, 2, 5, 10, 17, 19]
+    allowed_skills = [11, 11, 11, 12, 12, 12]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
-
+    maml_training_data=[]
 
     while global_step < args.total_timesteps:
         # ALGO LOGIC: put action logic here
         z_true = np.random.choice(allowed_skills)
         z_model = true_skill_to_model_idx[z_true]            
         state, _ = env.reset(seed=args.seed + episode)
-        state = concat_state_latent(state, z_model, args.n_skills_selected)
+        state_aug = concat_state_latent(state, z_model, args.n_skills_selected)
         episode_reward = 0
         logq_zses = []
 
@@ -253,7 +254,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step < args.learning_starts:
                 action = env.action_space.sample()
             else:
-                state_tensor = torch.tensor(state, dtype=torch.float32).unsqueeze(0).to(device)
+                state_tensor = torch.tensor(state_aug, dtype=torch.float32).unsqueeze(0).to(device)
                 with torch.no_grad():
                     mu = actor(state_tensor).cpu().numpy().squeeze(0)
                     noise = np.random.normal(0, args.exploration_noise, size=mu.shape)
@@ -262,8 +263,9 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
             next_state, reward, termination, truncation, info = env.step(action)
             next_state_aug = concat_state_latent(next_state, z_model, args.n_skills_selected)
+            maml_training_data.append((state.copy(), action))
             rb.add(
-                np.array([state]),
+                np.array([state_aug]),
                 np.array([next_state_aug]),
                 np.array([action]),
                 np.array([reward]),
@@ -272,7 +274,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             )
            
 
-            state = next_state_aug
+            state = next_state
+            state_aug = next_state_aug
             # state = next_state
             episode_reward += reward
             global_step += 1
@@ -340,6 +343,15 @@ poetry run pip install "stable_baselines3==2.0.0a1"
 
     model_dir = f"runs/checkpoints/qtargetmaml/{run_name}"
     os.makedirs(model_dir, exist_ok=True)
+
+    data_model_dir = f"runs/data_qonline/{run_name}"
+    os.makedirs(data_model_dir, exist_ok=True)
+
+    with open(os.path.join(data_model_dir, "maml_training_data.pkl"), "wb") as f:
+        pickle.dump(maml_training_data, f)
+    
+    print(f"Saved MAML training data to {data_model_dir}/maml_training_data.pkl")
+
     torch.save({
         "q_network_state_dict": q_network.state_dict(),
         "actor_state_dict": actor.state_dict(),
