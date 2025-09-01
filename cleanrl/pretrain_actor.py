@@ -429,7 +429,7 @@ if __name__ == "__main__":
         qmeta_net.load_state_dict(mapped_state_dict)
     qmeta_net = qmeta_net.to(device)
 
-    w = discriminator.q.weight[1].detach().to(device)
+    w = discriminator.q.weight[0].detach().to(device)
     w = w / (w.norm() + 1e-8)
 
     # Alpha autotune
