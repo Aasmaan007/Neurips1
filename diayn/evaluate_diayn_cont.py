@@ -19,10 +19,10 @@ class Args:
     seed: int = 10
     cuda: bool = True
     capture_video: bool = True
-    env_id: str = "Pusher-v4"
+    env_id: str = "Humanoid-v4"
     n_skills: int = 25
     eval_episodes_per_skill: int = 4
-    model_path: str = "runs/checkpoints/diayn/Pusher-v4__diayn__1__2025-08-17_00-56-36__1755372396/latest.pth"
+    model_path: str = "runs/checkpoints/diayn/Humanoid-v4__diayn__1__2025-09-04_14-21-13__1756975873/latest.pth"
     wandb_project_name: str = "Diayn_LunarLander_Evaluate"
     wandb_entity: str = None
     track: bool = True

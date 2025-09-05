@@ -20,11 +20,11 @@ from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "Hopper-v4"
+    env_id: str = "InvertedPendulum-v4"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/Hopper-v4__unified_collection_1__2025-08-19_12-03-05__1755585185/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_00-13-10__1755542590/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_00-13-10__1755542590/latest.pth"
+    data_path: str = "runs/data/InvertedPendulum-v4__unified_collection_1__2025-09-03_02-39-40__1756847380/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/InvertedPendulum-v4__q_online__1__2025-08-18_21-19-47__1755532187/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/InvertedPendulum-v4__q_online__1__2025-08-18_21-19-47__1755532187/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -183,7 +183,7 @@ def get_per_step_loss_weights(args: Args, current_epoch: int):
 def train():
     args = tyro.cli(Args)
     set_seed(args.seed)
-    device = torch.device("cuda:1" if args.cuda and torch.cuda.is_available() else "cpu")
+    device = torch.device("cuda" if args.cuda and torch.cuda.is_available() else "cpu")
 
     timestamp = int(time.time())
     run_name = f"{args.env_id}__{args.exp_name}__{args.seed}__{time.strftime('%Y-%m-%d_%H-%M-%S')}__{timestamp}"
@@ -217,11 +217,11 @@ def train():
     action_dim = env.action_space.shape[0]
     
     discriminator = Discriminator(state_dim, args.n_skills_total)
-    discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
+    discriminator.load_state_dict(torch.load(args.disc_path, map_location="cuda:0")['disc_state_dict'])
     discriminator = discriminator.to(device)
 
     qnet = Critic(env , args.n_skills_selected)
-    qnet.load_state_dict(torch.load(args.qnet_path)['q_network_state_dict'])
+    qnet.load_state_dict(torch.load(args.qnet_path, map_location="cuda:0")['q_network_state_dict'])
     qnet = qnet.to(device)
     
     
@@ -247,7 +247,7 @@ def train():
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1 ,5, 11, 12, 16, 19]
+    allowed_skills = [2 ,5, 6, 10, 11, 12]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 

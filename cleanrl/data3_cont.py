@@ -18,7 +18,7 @@ from cleanrl.diayn.models_cont import Discriminator, Critic, Actor
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "Hopper-v4"
+    env_id: str = "InvertedPendulum-v4"
     max_timesteps: int = 1000
     total_timesteps: int = 1000000
     # skill_timesteps: int = 392157
@@ -28,8 +28,8 @@ class Args:
     end_e: float = 0.05
     exploration_fraction: float = 0.50
     pos_dup_factor: int = 60
-    model_path_disc: str = "runs/checkpoints/diayn/Hopper-v4__diayn__1__2025-08-17_00-44-52__1755371692/latest.pth"
-    model_path_qnet: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_00-13-10__1755542590/latest.pth"
+    model_path_disc: str = "runs/checkpoints/diayn/InvertedPendulum-v4__diayn__1__2025-08-17_01-00-54__1755372654/latest.pth"
+    model_path_qnet: str = "runs/checkpoints/qtargetmaml/InvertedPendulum-v4__q_online__1__2025-08-18_21-19-47__1755532187/latest.pth"
     wandb_project_name: str = "unified_data_collection"
     wandb_entity: str = None
     track: bool = True
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     actor.load_state_dict(checkpoint_qnet["actor_state_dict"])
     discriminator.load_state_dict(checkpoint_disc["discriminator_state_dict"])
 
-    allowed_skills = [4, 5, 8, 9, 19, 24]
+    allowed_skills = [2, 5, 6, 10, 11, 12]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 

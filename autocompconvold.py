@@ -7,8 +7,8 @@ from dataclasses import dataclass
 
 @dataclass
 class Args:
-    sf_dir: str = "hopper_sf1"
-    q_dir: str = "hopper_q"
+    sf_dir: str = "IP_sf"
+    q_dir: str = "IP_q"
     env_eplen: int = 1000
     
 
@@ -47,29 +47,11 @@ def preload_all_csvs_in_dir(directory):
 # =========================
 
 def find_convergence_timestep_df(df, threshold, patience):
-    rewards, steps = df["Value"].to_numpy(), df["Step"].to_numpy()
-    min_span = patience * 1000
-    
-    n = len(rewards)
-    for i in range(n):
-        # expand j until span condition is met
-        j = i
-        while j < n and steps[j] - steps[i] < min_span:
-            j += 1
-        
-        if j < n:  # found a window [i, j]
-            span = steps[j] - steps[i]
-            span_minus_last = steps[j-1] - steps[i] if j-1 > i else 0
-            
-            if span >= min_span and span_minus_last < min_span:
-                window_mean = rewards[i:j+1].mean()
-                if window_mean >= threshold:
-                    # return the *center step* of the window
-                    center_step = int((steps[i] + steps[j]) / 2)
-                    return center_step
+    rewards, steps = df["Value"], df["Step"]
+    for i in range(len(rewards) - patience + 1):
+        if all(rewards[i:i+patience] >= threshold):
+            return steps[i]
     return 1000000  # fallback
-
-
 
 # =========================
 #  Precomputation
@@ -85,6 +67,10 @@ def precompute_all_convergence(all_csv_data, thresholds, patiences):
         for threshold in thresholds:
             for patience in patiences:
                 ts = find_convergence_timestep_df(df, threshold, patience)
+                # if(fname == 'Hopper-v4__td3_continuous_action__35__False__1756819382.csv' and threshold == 1500 and patience == 1):
+                #     print(f"Found q at {ts}")
+                # if(fname == 'Hopper-v4__td3test__35__True__1756917949.csv' and threshold == 1500 and patience == 1):
+                #     print(f"Found sf at {ts}")
                 results[(fname, threshold, patience)] = ts
     return results
 
@@ -122,14 +108,13 @@ def load_q_convergence_from_precomputed(precomputed_results, threshold, patience
 
 def main(args: Args):
 
-    ALL_THRESHOLDS = range(3000, 3001)
-    ALL_PATIENCES = range(5, 35)
+    ALL_THRESHOLDS = range(1000, 1001)
+    ALL_PATIENCES = range(5, 36,5)
     max_diff_threshold = 15000
 
     print("=== Preloading CSVs ===")
     sf_data = preload_all_csvs_in_dir(args.sf_dir)
     q_data  = preload_all_csvs_in_dir(args.q_dir)
-    
 
     print("=== Precomputing convergence ===")
     sf_precomputed_10 = precompute_all_convergence(sf_data, ALL_THRESHOLDS, ALL_PATIENCES)
@@ -156,7 +141,7 @@ def main(args: Args):
             q_scratch_vals_10 = [q_scratch_10[s] for s in seeds]
             diff10 = [qs - sf for qs, sf in zip(q_scratch_vals_10, sf_pre_vals_10)]
             positive_count = sum(1 for x in diff10 if x > 0)
-            if(positive_count > 3 and np.mean(diff10)> 0):
+            if(positive_count > 4 and np.mean(diff10)> 0):
                 print(f"Found patience of {patience} and threshold of {threshold} with mean diff {np.mean(diff10)} as approx {np.mean(diff10)/args.env_eplen} episodes")
                 best_result = np.mean(diff10) 
 
