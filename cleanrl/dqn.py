@@ -21,7 +21,7 @@ from gymnasium.wrappers.time_limit import TimeLimit as GymTimeLimit
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = 81
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -65,7 +65,7 @@ class Args:
     """the starting epsilon for exploration"""
     end_e: float = 0.05
     """the ending epsilon for exploration"""
-    exploration_fraction: float = 0.5
+    exploration_fraction: float = 0.25
     """the fraction of `total-timesteps` it takes from start-e to go end-e"""
     learning_starts: int = 10000
     """timestep to start learning"""
@@ -151,7 +151,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         wandb.define_metric("stepwise/*", step_metric="gobal_step")      
         wandb.config.update(vars(args), allow_val_change=True)
 
-    writer = SummaryWriter(f"runs/mamlqadaption2random/{run_name}")
+    writer = SummaryWriter(f"runs/sfruns/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),

@@ -12,7 +12,7 @@ combinations = list(itertools.product(seeds, pretrained_options))
 
 def run_combination(seed, pretrained):
     cmd = [
-        "python", "-m", "cleanrl.cleanrl.dqntest",
+        "python", "-m", "cleanrl.cleanrl.dqn",
         f"--seed={seed}"
     ]
 

@@ -45,7 +45,7 @@ class Args:
     w_path: str  = "runs/checkpoints/env_phi_task/MountainCar-v0__joint_phi_task__1__2025-05-27_11-49-54/latest.pth"
     model_path = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth"
     w_random: bool = False
-    pretrained: bool = False
+    pretrained: bool = True
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         wandb.define_metric("stepwise/*", step_metric="gobal_step")      
         wandb.config.update(vars(args), allow_val_change=True)
 
-    writer = SummaryWriter(f"runs/testingrandom/{run_name}")
+    writer = SummaryWriter(f"runs/sfruns/{run_name}")
     writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{k}|{v}|" for k, v in vars(args).items()])))
 
     random.seed(args.seed)
