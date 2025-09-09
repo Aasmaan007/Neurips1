@@ -39,13 +39,10 @@ class Args:
     batch_size: int = 128
     start_e: float = 1
     end_e: float = 0.05
-    exploration_fraction: float = 0.5
+    exploration_fraction: float = 0.25 
     learning_starts: int = 10000
     train_frequency: int = 10
     w_path: str  = "runs/checkpoints/env_phi_task/Acrobot-v1__joint_phi_task__1__2025-05-20_19-12-13/latest.pth"
-
-    # epoch_no_testing: str = "500"
-
     model_path = "runs/checkpoints/maml/Acrobot-v1__MAML_SF__1__2025-05-20_17-35-29__1747742729/250000/latest.pth"
     w_random: bool = False
     pretrained: bool = True
@@ -116,7 +113,7 @@ if __name__ == "__main__":
         wandb.define_metric("stepwise/*", step_metric="gobal_step")      
         wandb.config.update(vars(args), allow_val_change=True)
 
-    writer = SummaryWriter(f"runs/testingrandom/{run_name}")
+    writer = SummaryWriter(f"runs/testruns/{run_name}")
     writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{k}|{v}|" for k, v in vars(args).items()])))
 
     random.seed(args.seed)
