@@ -72,7 +72,7 @@ class Args:
     train_frequency: int = 10
     """the frequency of training"""
     max_timesteps: int = 1000
-    model_path: str = "runs/checkpoints/qmaml/500000/CartPole-v1__MAML_Q__1__2025-05-18_19-04-33__1747575273/latest.pth" 
+    model_path: str = "runs/checkpoints/qmaml/CartPole-v1__MAML_Q__1__2025-05-18_19-04-33__1747575273/latest.pth" 
     pretrained: bool = True
 
 
@@ -151,7 +151,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         wandb.define_metric("stepwise/*", step_metric="gobal_step")      
         wandb.config.update(vars(args), allow_val_change=True)
 
-    writer = SummaryWriter(f"runs/mamlqadaption2random/{run_name}")
+    writer = SummaryWriter(f"runs/testruns/{run_name}")
     writer.add_text(
         "hyperparameters",
         "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])),
