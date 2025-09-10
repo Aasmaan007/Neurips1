@@ -13,6 +13,7 @@ import torch.optim as optim
 import tyro
 import gymnasium as gym
 import wandb
+import gym_maze
 
 from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork , QNetworkMaml
 
@@ -20,11 +21,11 @@ from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork , QNetworkM
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "LunarLander-v2"
+    env_id: str = "maze-random-10x10-plus-v0"
     exp_name: str = "MAML_Q"
-    data_path: str = "runs/data/LunarLander-v2__unified_collection_1__2025-05-05_00-18-05__1746384485/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/LunarLander-v2__q_online__1__2025-05-04_23-22-54__1746381174/latest.pth"
+    data_path: str = "runs/data/maze-random-10x10-plus-v0__unified_collection_1__2025-07-07_22-01-16__1751905876/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/maze-random-10x10-plus-v0__q_online__1__2025-07-07_20-41-56__1751901116/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/maze-random-10x10-plus-v0__q_online__1__2025-07-07_20-41-56__1751901116/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6

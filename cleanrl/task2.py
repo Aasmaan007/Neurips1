@@ -11,12 +11,13 @@ from cleanrl.diayn.models import FeatureNetwork, SFNetwork, QNetwork
 import gymnasium as gym
 import wandb
 import tyro
+import gym_maze
 
 @dataclass
 class Args:
     exp_name: str = "joint_phi_task"
-    env_data_path: str = "runs/data/MountainCar-v0__1__2025-05-13_01-18-20__pretrained-False /task_regression_data.pkl"
-    env_id: str = "MountainCar-v0"
+    env_data_path: str = "runs/data/maze-random-10x10-plus-v0__1__2025-07-10_17-39-02__pretrained-False /task_regression_data.pkl"
+    env_id: str = "maze-random-10x10-plus-v0"
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
@@ -31,8 +32,8 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/maze-random-10x10-plus-v0__MAML_SF__1__2025-07-08_10-19-27__1751950167/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/maze-random-10x10-plus-v0__q_online__1__2025-07-07_20-41-56__1751901116/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
     n_skills_selected: int = 6

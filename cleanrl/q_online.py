@@ -19,6 +19,7 @@ from cleanrl.diayn.models import Discriminator, QNetwork
 from cleanrl.diayn.utils import  train_dqn_online
 from gymnasium import spaces
 from gymnasium.wrappers import TimeLimit
+import gym_maze
 
 
 from collections import defaultdict
@@ -46,7 +47,7 @@ class Args:
     """whether to capture videos of the agent performances (check out `videos` folder)"""
 
     # Algorithm specific arguments
-    env_id: str = "LunarLander-v2"
+    env_id: str = "maze-random-10x10-plus-v0"
     """the id of the environment"""
     total_timesteps: int = 10000000
     """"total timesteps"""

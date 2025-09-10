@@ -8,6 +8,7 @@ import gymnasium as gym
 import numpy as np
 import torch
 import torch.nn as nn
+import gym_maze
 import torch.nn.functional as F
 import torch.optim as optim
 import tyro
@@ -28,7 +29,7 @@ class Args:
     save_model: bool = False
     upload_model: bool = False
     hf_entity: str = ""
-    env_id: str = "LunarLander-v2"
+    env_id: str = "maze-random-10x10-plus-v0"
     total_timesteps: int = 500000
     learning_rate: float = 2.5e-4
     num_envs: int = 1
@@ -42,8 +43,8 @@ class Args:
     exploration_fraction: float = 0.25
     learning_starts: int = 10000
     train_frequency: int = 10
-    w_path: str  = "runs/checkpoints/env_phi_task/LunarLander-v2__joint_phi_task__1__2025-05-05_01-37-20/latest.pth"
-    model_path = "runs/checkpoints/maml/LunarLander-v2__MAML_SF__1__2025-05-05_00-41-00__1746385860/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/maze-random-10x10-plus-v0__joint_phi_task__1__2025-07-10_17-52-29/latest.pth"
+    model_path = "runs/checkpoints/maml/maze-random-10x10-plus-v0__MAML_SF__1__2025-07-08_10-19-27__1751950167/latest.pth"
     w_random: bool = False
     pretrained: bool = True
 

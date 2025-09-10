@@ -7,9 +7,9 @@ from dataclasses import dataclass
 
 @dataclass
 class Args:
-    sf_dir: str = "runsdatasf"
-    q_dir: str = "runsdataq"
-    env_eplen: int = 1000
+    sf_dir: str = "maze_sf"
+    q_dir: str = "maze_q"
+    env_eplen: int = 200
     
 
 # =========================
@@ -17,7 +17,7 @@ class Args:
 # =========================
 # === SF EXTRACT ===
 def extract_sf_seed_pretrained(filename):
-    match = re.search(r"v2__([0-9]+)__wrandom-[^_]+__pretrained-(True|False)", filename)
+    match = re.search(r"v0__([0-9]+)__wrandom-[^_]+__pretrained-(True|False)", filename)
     if not match:
         raise ValueError(f"Invalid filename format: {filename}")
     return int(match.group(1)), match.group(2) == "True"
@@ -109,8 +109,8 @@ def load_q_convergence_from_precomputed(precomputed_results, threshold, patience
 
 def main(args: Args):
 
-    ALL_THRESHOLDS = range(190, 201)
-    ALL_PATIENCES = range(5, 36,5)
+    ALL_THRESHOLDS = range(-25, -20)
+    ALL_PATIENCES = range(5, 36, 5)
     max_diff_threshold = 15000
 
     print("=== Preloading CSVs ===")
@@ -121,7 +121,7 @@ def main(args: Args):
     sf_precomputed_10 = precompute_all_convergence(sf_data, ALL_THRESHOLDS, ALL_PATIENCES)
     q_precomputed_10  = precompute_all_convergence(q_data,  ALL_THRESHOLDS, ALL_PATIENCES)
   
-
+    #print(sf_precomputed_10,q_precomputed_10)
 
     print("=== Starting grid search ===")
 
@@ -131,6 +131,7 @@ def main(args: Args):
         for threshold in ALL_THRESHOLDS:
             sf_pretrained_10 = load_sf_convergence_from_precomputed(sf_precomputed_10, threshold, patience)
             q_pretrained_10, q_scratch_10 = load_q_convergence_from_precomputed(q_precomputed_10, threshold, patience)
+            #print(sf_pretrained_10, q_scratch_10)
             seeds = sorted(q_scratch_10.keys())
             if not seeds:
                 continue
@@ -144,8 +145,8 @@ def main(args: Args):
             diff10 = [qs - sf for qs, sf in zip(q_scratch_vals_10, sf_pre_vals_10)]
             #print(diff10)
             positive_count = sum(1 for x in diff10 if x > 0)
-            if(positive_count > 4 and np.mean(diff10)> 0):
-                print(f"Found patience of {patience} and threshold of {threshold} with mean diff {np.mean(diff10)} as approx {np.mean(diff10)/args.env_eplen} episodes")
+            if(positive_count > 0 and np.mean(diff10)> 0):
+                print(f"Found patience of {patience} with postive count {positive_count} and threshold of {threshold} with mean diff {np.mean(diff10)} as approx {np.mean(diff10)/args.env_eplen} episodes")
                 best_result = np.mean(diff10) 
 
     print("\n=== DONE ===")
