@@ -13,13 +13,14 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+from cleanrl.diayn.models_cont import Discriminator
 
 
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 1
+    seed: int = 3
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -67,8 +68,14 @@ class Args:
     """the frequency of training policy (delayed)"""
     noise_clip: float = 0.5
     """noise clip parameter of the Target Policy Smoothing Regularization"""
-    pretrained: bool = False
-
+    model_path = "runs/checkpoints/maml/HalfCheetah-v4__MAML_SF__1__2025-08-07_15-29-44__1754560784/latest.pth"
+    model1_path = "runs/checkpoints/maml/Hopper-v4__MAML_SF__1__2025-09-04_12-10-36__1756968036/latest.pth"
+    disc_path: str = "runs/checkpoints/qtargetmaml/HalfCheetah-v4__q_online__1__2025-08-07_11-08-50__1754545130/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/HalfCheetah-v4__q_online__1__2025-08-07_11-08-50__1754545130/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/HalfCheetah-v4__joint_phi_task__1__2025-08-07_19-50-19/latest.pth"
+    pretrained: bool = True
+    w_random: bool = False
+    n_skills_total: int = 25
 
 def make_env(env_id, seed, idx, capture_video, run_name):
     def thunk():
@@ -102,6 +109,24 @@ class QNetwork(nn.Module):
         x = self.fc3(x)
         return x
 
+class QNetworkmeta(nn.Module):
+    def __init__(self, env):
+        super().__init__()
+        state_dim = np.prod(env.single_observation_space.shape)
+        action_dim = np.prod(env.single_action_space.shape)
+        self.input_dim = state_dim + action_dim
+        self.embedding = nn.Sequential(
+            nn.Linear(self.input_dim, 120),
+            nn.ReLU(),
+            nn.Linear(120, 84),
+            nn.ReLU(),
+            nn.Linear(84, 32),  # 16-dim embedding
+        )
+
+    def forward(self, state, action_onehot):
+        x = torch.cat([state, action_onehot], dim=-1)
+        return self.embedding(x)  # returns phi(s, a)
+
 
 class Actor(nn.Module):
     def __init__(self, env):
@@ -131,6 +156,14 @@ class Actor(nn.Module):
         x = torch.tanh(self.fc_mu(x))
         return x * self.action_scale + self.action_bias
 
+class TaskVector(nn.Module):
+    def __init__(self, dim):
+        super().__init__()
+        self.w = nn.Parameter(torch.randn(dim))
+
+    def forward(self, phi_next):
+        w_norm = self.w / (torch.norm(self.w) + 1e-8)
+        return torch.matmul(phi_next, w_norm)
 
 if __name__ == "__main__":
     import stable_baselines3 as sb3
@@ -176,10 +209,44 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     )
     assert isinstance(envs.single_action_space, gym.spaces.Box), "only continuous action space is supported"
 
+
+    
+    state_dim = 17#envs.observation_space.shape[0]
+    #print("state_dim:", state_dim)
+
     actor = Actor(envs).to(device)
-    qf1 = QNetwork(envs).to(device)
+    qf1 = QNetworkmeta(envs).to(device)
+    if(args.pretrained):
+        checkpoint2 = torch.load(args.model_path, map_location="cpu")
+        sf_state_dict = checkpoint2["sfmeta_network_state_dict"]
+        mapped_state_dict = {}
+        mapped_state_dict["embedding.0.weight"] = sf_state_dict["l1.weight"]
+        mapped_state_dict["embedding.0.bias"]   = sf_state_dict["l1.bias"]
+        mapped_state_dict["embedding.2.weight"] = sf_state_dict["l2.weight"]
+        mapped_state_dict["embedding.2.bias"]   = sf_state_dict["l2.bias"]
+        mapped_state_dict["embedding.4.weight"] = sf_state_dict["l3.weight"]
+        mapped_state_dict["embedding.4.bias"]   = sf_state_dict["l3.bias"]
+        qf1.load_state_dict(mapped_state_dict)
+    qf1 = qf1.to(device)
+
+    # qf2 = QNetwork(envs).to(device)
+    # if(args.pretrained):
+    #     checkpoint3 = torch.load(args.model1_path, map_location="cpu")
+    #     sf_state_dict = checkpoint3["sfmeta_network_state_dict"]
+    #     mapped_state_dict = {}
+    #     mapped_state_dict["embedding.0.weight"] = sf_state_dict["l1.weight"]
+    #     mapped_state_dict["embedding.0.bias"]   = sf_state_dict["l1.bias"]
+    #     mapped_state_dict["embedding.2.weight"] = sf_state_dict["l2.weight"]
+    #     mapped_state_dict["embedding.2.bias"]   = sf_state_dict["l2.bias"]
+    #     mapped_state_dict["embedding.4.weight"] = sf_state_dict["l3.weight"]
+    #     mapped_state_dict["embedding.4.bias"]   = sf_state_dict["l3.bias"]
+    #     qf2.load_state_dict(mapped_state_dict)
+    # qf2 = qf2.to(device)
+
+
+
     qf2 = QNetwork(envs).to(device)
-    qf1_target = QNetwork(envs).to(device)
+    qf1_target = QNetworkmeta(envs).to(device)
     qf2_target = QNetwork(envs).to(device)
     target_actor = Actor(envs).to(device)
     target_actor.load_state_dict(actor.state_dict())
@@ -187,6 +254,25 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     qf2_target.load_state_dict(qf2.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.learning_rate)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.learning_rate)
+
+    discriminator = Discriminator(state_dim, args.n_skills_total)
+    disc_ckpt = torch.load(args.disc_path, map_location="cpu")
+    discriminator.load_state_dict(disc_ckpt['disc_state_dict'])
+    #discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
+    discriminator = discriminator.to(device)
+
+    w = torch.randn(32).to(device)
+    w = w / (w.norm() + 1e-8)
+    task_vector = TaskVector(32).to(device)
+    checkpoint1 = torch.load(args.w_path)
+    if(not args.w_random):
+        task_vector.load_state_dict(checkpoint1["task_vector"])
+    w = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
+
+
+#     w = discriminator.q.weight[1].detach().to(device)
+#    #w = torch.randn(32).to(device)
+#     w = w / (w.norm() + 1e-8)
 
     envs.single_observation_space.dtype = np.float32
     rb = ReplayBuffer(
@@ -245,12 +331,17 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     envs.single_action_space.low[0], envs.single_action_space.high[0]
                 )
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
-                qf2_next_target = qf2_target(data.next_observations, next_state_actions)
+                qf1_next_target = torch.einsum("bd,d->b", qf1_next_target, w)
+                qf2_next_target = qf2_target(data.next_observations, next_state_actions).squeeze(-1)
+                # qf2_next_target = torch.einsum("bd,d->b", qf2_next_target, w)
                 min_qf_next_target = torch.min(qf1_next_target, qf2_next_target)
+                # print(qf1_next_target.shape, qf2_next_target.shape, min_qf_next_target.shape, data.rewards.flatten().shape, data.dones.flatten().shape)
                 next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
 
-            qf1_a_values = qf1(data.observations, data.actions).view(-1)
+            qf1_a_values = qf1(data.observations, data.actions)
+            qf1_a_values = torch.einsum("bd,d->b", qf1_a_values, w).view(-1)
             qf2_a_values = qf2(data.observations, data.actions).view(-1)
+            # qf2_a_values = torch.einsum("bd,d->b", qf2_a_values, w).view(-1)
             qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
             qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
             qf_loss = qf1_loss + qf2_loss
@@ -261,7 +352,10 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             q_optimizer.step()
 
             if global_step % args.policy_frequency == 0:
-                actor_loss = -qf1(data.observations, actor(data.observations)).mean()
+                psi = qf1(data.observations, actor(data.observations))
+                qvals = torch.einsum("bd,d->b", psi,w)
+                #actor_loss = -qf2(data.observations, actor(data.observations)).mean()
+                actor_loss = -qvals.mean()
                 actor_optimizer.zero_grad()
                 actor_loss.backward()
                 actor_optimizer.step()
