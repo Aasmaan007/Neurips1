@@ -31,7 +31,7 @@ import pickle
 class Args:
     exp_name: str = "q_online"
     """the name of this experiment"""
-    seed: int = 94
+    seed: int = 1
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""

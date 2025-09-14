@@ -22,7 +22,7 @@ from cleanrl.diayn.models_cont import Discriminator
 class Args:
    exp_name: str = os.path.basename(__file__)[: -len(".py")]
    """the name of this experiment"""
-   seed: int = 35
+   seed: int = 14
    """seed of the experiment"""
    torch_deterministic: bool = True
    """if toggled, torch.backends.cudnn.deterministic=False"""
@@ -291,7 +291,7 @@ if __name__ == "__main__":
         qmeta_net.load_state_dict(mapped_state_dict)
 
    qmeta_net = qmeta_net.to(device)
-   w = discriminator.q.weight[0].detach().to(device)
+   w = discriminator.q.weight[1].detach().to(device)
    #w = torch.randn(32).to(device)
    w = w / (w.norm() + 1e-8)
 #    task_vector = TaskVector(32).to(device)

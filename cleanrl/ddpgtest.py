@@ -13,6 +13,8 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+
+from cleanrl.diayn.models_cont import Discriminator
 import pickle
 
 
@@ -20,7 +22,7 @@ import pickle
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 35
+    seed: int = 81
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -65,9 +67,11 @@ class Args:
     noise_clip: float = 0.5
     """noise clip parameter of the Target Policy Smoothing Regularization"""
     w_path: str  = "runs/checkpoints/env_phi_task/Hopper-v4__joint_phi_task__1__2025-08-20_01-59-52/latest.pth"
-    model_path = "runs/checkpoints/maml/Hopper-v4__MAML_SF__1__2025-08-19_23-42-42__1755627162/latest.pth"
+    model_path = "runs/checkpoints/maml/Hopper-v4__MAML_SF__1__2025-09-03_17-06-33__1756899393/latest.pth"
+    disc_path: str = "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
     w_random: bool = False
     pretrained: bool = True
+    n_skills_total: int = 25
 
 
 
@@ -194,7 +198,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     
 
     if(args.pretrained):
-        checkpoint2 = torch.load(args.model_path)
+        checkpoint2 = torch.load(args.model_path, map_location="cpu")
         sf_state_dict = checkpoint2["sfmeta_network_state_dict"]
         mapped_state_dict = {}
         mapped_state_dict["embedding.0.weight"] = sf_state_dict["l1.weight"]
@@ -204,6 +208,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         mapped_state_dict["embedding.4.weight"] = sf_state_dict["l3.weight"]
         mapped_state_dict["embedding.4.bias"]   = sf_state_dict["l3.bias"]
         qf1.load_state_dict(mapped_state_dict)
+    qf1 = qf1.to(device)
 
     qf1_target = QNetwork(envs).to(device)
     target_actor = Actor(envs).to(device)
@@ -211,14 +216,24 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     qf1_target.load_state_dict(qf1.state_dict())
     q_optimizer = optim.Adam(list(qf1.parameters()), lr=args.learning_rate)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.learning_rate)
+    state_dim = 11#envs.observation_space.shape[0]
+    discriminator = Discriminator(state_dim, args.n_skills_total)
+    disc_ckpt = torch.load(args.disc_path, map_location="cpu")
+    discriminator.load_state_dict(disc_ckpt['disc_state_dict'])
+    #discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
+    discriminator = discriminator.to(device)
 
-    w = torch.randn(32).to(device)
+    # w = torch.randn(32).to(device)
+    # w = w / (w.norm() + 1e-8)
+    # task_vector = TaskVector(32).to(device)
+    # checkpoint1 = torch.load(args.w_path)
+    # if(not args.w_random):
+    #     task_vector.load_state_dict(checkpoint1["task_vector"])
+    # w = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
+
+    w = discriminator.q.weight[1].detach().to(device)
+    #w = torch.randn(32).to(device)
     w = w / (w.norm() + 1e-8)
-    task_vector = TaskVector(32).to(device)
-    checkpoint1 = torch.load(args.w_path)
-    if(not args.w_random):
-        task_vector.load_state_dict(checkpoint1["task_vector"])
-    w = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
 
 
     envs.single_observation_space.dtype = np.float32
@@ -273,7 +288,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                 qf1_next_target = qf1_target(data.next_observations, next_state_actions)
                 #print("1", qf1_next_target.shape, w.shape)
                 qvals_next = torch.einsum("bd,d->b", qf1_next_target, w)
-                qvals_next = torch.where(qvals_next > 300, torch.tensor(0.01, device=qvals_next.device), qvals_next)
+                #qvals_next = torch.where(qvals_next > 300, torch.tensor(0.01, device=qvals_next.device), qvals_next)
                 next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (qvals_next).view(-1)
 
             qf1_a_values = qf1(data.observations, data.actions)
@@ -281,7 +296,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             qvals = torch.einsum("bd,d->b", qf1_a_values, w)
             # qvals = torch.where(qvals > 500, torch.tensor(0.5, device=qvals.device), qvals) # <-- Clip to -550 minimum
             qf1_loss = F.mse_loss(qvals, next_q_value)
-            qf1_loss = torch.clamp(qf1_loss, max=200)
+            #qf1_loss = torch.clamp(qf1_loss, max=200)
 
             # optimize the model
             q_optimizer.zero_grad()
@@ -291,7 +306,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
             if global_step % args.policy_frequency == 0:
                 psi = qf1(data.observations, actor(data.observations))
                 qvals1 = torch.einsum("bd,d->b", psi, w)
-                qvals1 = torch.where(qvals1 > 300, torch.tensor(0.01, device=qvals1.device), qvals1)
+                #qvals1 = torch.where(qvals1 > 300, torch.tensor(0.01, device=qvals1.device), qvals1)
                 actor_loss = -qvals1.mean()
                  # <-- Clip to -550 minimum
                 # actor_loss = torch.clamp(actor_loss, min=-550)  # <-- Clip to -550 minimum

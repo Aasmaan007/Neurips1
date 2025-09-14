@@ -329,10 +329,9 @@ if __name__ == "__main__":
         qf1.load_state_dict(mapped_state_dict)
    qf1 = qf1.to(device)
 
-   qf2 = SFSoftQNetwork(envs).to(device)
-   qf2.load_state_dict(qf1.state_dict())
+   qf2 = SoftQNetwork(envs).to(device)
    qf1_target = SFSoftQNetwork(envs).to(device)
-   qf2_target = SFSoftQNetwork(envs).to(device)
+   qf2_target = SoftQNetwork(envs).to(device)
    qf1_target.load_state_dict(qf1.state_dict())
    qf2_target.load_state_dict(qf2.state_dict())
    q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
@@ -431,15 +430,29 @@ if __name__ == "__main__":
                next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
                qf1_next_targetpsi = qf1_target(data.next_observations, next_state_actions)
                qf1_next_target = torch.einsum("bd,d->b", qf1_next_targetpsi, w) 
-               qf2_next_targetpsi = qf2_target(data.next_observations, next_state_actions)
-               qf2_next_target = torch.einsum("bd,d->b", qf2_next_targetpsi, w) 
-               min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * (next_state_log_pi).view(-1)
+               # Compute percentiles
+               p5 = torch.quantile(qf1_next_target, 0.05)
+               p95 = torch.quantile(qf1_next_target, 0.95)
+
+               mask = (qf1_next_target >= p5) & (qf1_next_target <= p95)
+               qf1_next_target = qf1_next_target * mask.float()
+
+               qf2_next_target = qf2_target(data.next_observations, next_state_actions).view(-1)
+               #qf2_next_target = torch.einsum("bd,d->b", qf2_next_targetpsi, w) 
+               min_qf_next_target = torch.max(qf1_next_target, qf2_next_target) - alpha * (next_state_log_pi).view(-1)
+            #    print("next_state_actions:", next_state_actions.shape)
+            #    print("next_state_log_pi:", next_state_log_pi.shape)
+            #    print("qf1_next_target:", qf1_next_target.shape)
+            #    print("qf2_next_target:", qf2_next_target.shape)
+            #    print("min_qf_next_target:", min_qf_next_target.shape)
+            #    print("data.rewards:", data.rewards.flatten().shape)
+            #    print("data.dones:", data.dones.flatten().shape)
                next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (min_qf_next_target).view(-1)
 
            qf1_a_valuespsi = qf1(data.observations, data.actions)
-           qf2_a_valuespsi = qf2(data.observations, data.actions)
+           qf2_a_values = qf2(data.observations, data.actions).view(-1)
            qf1_a_values = torch.einsum("bd,d->b", qf1_a_valuespsi, w).view(-1)   
-           qf2_a_values = torch.einsum("bd,d->b", qf2_a_valuespsi, w).view(-1)   
+           #qf2_a_values = torch.einsum("bd,d->b", qf2_a_valuespsi, w).view(-1)   
            qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
            qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
            qf_loss = qf1_loss + qf2_loss
@@ -465,9 +478,9 @@ if __name__ == "__main__":
 
                    # 3) Q estimates for actor samples (used in SAC actor loss)
                    qf1_pi_reppsi = qf1(obs_rep, pi_rep)               # [B*K]
-                   qf2_pi_reppsi = qf2(obs_rep, pi_rep)
+                   qf2_pi_rep = qf2(obs_rep, pi_rep).view(-1)
                    qf1_pi_rep = torch.einsum("bd,d->b", qf1_pi_reppsi, w).view(-1)          # [B*K]
-                   qf2_pi_rep = torch.einsum("bd,d->b", qf2_pi_reppsi, w).view(-1)          # [B*K]
+                   #qf2_pi_rep = torch.einsum("bd,d->b", qf2_pi_reppsi, w).view(-1)          # [B*K]
                    min_q_pi_rep = torch.min(qf1_pi_rep, qf2_pi_rep)         # [B*K]
 
                    # 4) Compute qmeta at these samples — frozen (no grad)

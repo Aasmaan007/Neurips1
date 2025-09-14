@@ -1,6 +1,6 @@
 # docs and experiment results: https://docs.cleanrl.dev/rl-algorithms/sac/#sac_continuous_actionpy
-# Stage 1: pretrain actor against meta-Q (KL to Boltz(Q_meta))
-# Stage 2: PURE SAC (no KL term, no meta compute)
+# Stage 1: pretrain actor offline using CEM against meta-Q (qmeta_net + w)
+# Stage 2: (commented) PURE SAC
 
 import os
 import random
@@ -54,14 +54,14 @@ class Args:
 
     # --- meta pretrain (Stage 1) ---
     pretrain: bool = True
-    pretrain_collect_steps: int = 5000      # random-acting steps to populate buffer
-    pretrain_steps: int = 20000             # actor-only updates vs meta
+    pretrain_collect_steps: int = 5000
+    pretrain_steps: int = 20000
     pretrain_batch_size: int = 256
-    pretrain_K: int = 4                     # actions per state to estimate KL
+    pretrain_K: int = 4
     pretrain_p_lo: float = 0.05
     pretrain_p_hi: float = 0.95
-    pretrain_lr: float = 3e-4               # actor LR during pretrain
-    std_ema_alpha: float = 0.02             # EMA for calibration stats
+    pretrain_lr: float = 3e-4
+    std_ema_alpha: float = 0.02
     log_every_pretrain: int = 500
 
     # Paths / pretrained
@@ -74,13 +74,20 @@ class Args:
     pretrained: bool = True
     n_skills_total: int = 25
 
+    # ---------- CEM knobs ----------
+    cem_lambda_penalty: float = 0.05   # trust penalty weight ||a - a_D||^2
+    cem_N: int = 64                    # candidates per state
+    cem_K: int = 6                     # elites per state
+    cem_T: int = 3                     # CEM iterations
+    cem_sigma0: float = 0.2            # initial std as fraction of action range
+
 torch.use_deterministic_algorithms(True)
-os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"  # needed by deterministic_algorithms on CUDA
+os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":16:8"
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False
-torch.set_float32_matmul_precision("high")  # keeps FP32, disables TF32 drift
+torch.set_float32_matmul_precision("high")
 
 
 def make_env(env_id, seed, idx, capture_video, run_name):
@@ -124,25 +131,6 @@ class QNetwork(nn.Module):
         x = torch.cat([state, action_cont], dim=-1)
         return self.embedding(x)  # [B, 32]
     
-class Qonlinenet(nn.Module):
-    def __init__(self, env, nskills: int):
-        super().__init__()
-        base_obs_dim = int(np.prod(env.observation_space.shape))
-        obs_dim = base_obs_dim + nskills
-        act_dim = int(np.prod(env.action_space.shape))
-        hidden = 256
-        self.fc1 = nn.Linear(obs_dim + act_dim, hidden)
-        self.fc2 = nn.Linear(hidden, hidden)
-        self.fc3 = nn.Linear(hidden, 1)
-
-    def forward(self, state, action, extra_vec):
-        # state is assumed already concatenated with one-hot skill
-        x = torch.cat([state, extra_vec, action], dim=-1)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x)
-
-
 class SoftQNetwork(nn.Module):
     def __init__(self, env):
         super().__init__()
@@ -165,9 +153,6 @@ class SoftQNetwork(nn.Module):
 LOG_STD_MAX = 2
 LOG_STD_MIN = -5
 
-
-
-
 class Actor(nn.Module):
     def __init__(self, env):
         super().__init__()
@@ -175,7 +160,6 @@ class Actor(nn.Module):
         self.fc2 = nn.Linear(256, 256)
         self.fc_mean = nn.Linear(256, int(np.prod(env.single_action_space.shape)))
         self.fc_logstd = nn.Linear(256, int(np.prod(env.single_action_space.shape)))
-        # action rescaling
         self.register_buffer(
             "action_scale",
             torch.tensor(
@@ -204,133 +188,71 @@ class Actor(nn.Module):
         mean, log_std = self(x)
         std = log_std.exp()
         normal = torch.distributions.Normal(mean, std)
-        x_t = normal.rsample()  # reparameterization trick
+        x_t = normal.rsample()
         y_t = torch.tanh(x_t)
         action = y_t * self.action_scale + self.action_bias
         log_prob = normal.log_prob(x_t)
-        # Enforcing Action Bound
         log_prob -= torch.log(self.action_scale * (1 - y_t.pow(2)) + 1e-6)
         log_prob = log_prob.sum(1, keepdim=True)
         mean = torch.tanh(mean) * self.action_scale + self.action_bias
         return action, log_prob, mean
 
 
-# ------- helpers for meta KL calibration (Stage 1 only) -------
+# ======= Helpers for CEM distill =======
+def atanh_safe(u: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
+    u = u.clamp(-1 + eps, 1 - eps)
+    return 0.5 * (torch.log1p(u) - torch.log1p(-u))
+
+def actor_nll_on_actions(actor: Actor, states: torch.Tensor, actions: torch.Tensor) -> torch.Tensor:
+    mean, log_std = actor(states)
+    std = log_std.exp()
+    y = (actions - actor.action_bias) / (actor.action_scale + 1e-6)  # [-1,1]
+    x = atanh_safe(y)  # pre-tanh
+    normal = torch.distributions.Normal(mean, std)
+    log_prob_x = normal.log_prob(x).sum(dim=1, keepdim=True)
+    log_det = torch.log(actor.action_scale * (1 - y.pow(2)) + 1e-6).sum(dim=1, keepdim=True)
+    log_prob_a = log_prob_x - log_det
+    return -(log_prob_a.mean())
+
 @torch.no_grad()
-def _affine_match(qmeta_rep, min_q_rep, B, K, ema_state, ema_alpha=0.02, eps_small=1e-6):
-    """
-    Compute an EMA'd affine mapping (scale, shift) so that:
-      qmeta_scaled = scale * qmeta_rep + shift
-    roughly matches the location/scale of min_q across states, using robust (median) aggregation.
-    """
-    qmeta_rs = qmeta_rep.view(B, K)
-    qmin_rs = min_q_rep.view(B, K)
-
-    per_mu_meta = qmeta_rs.mean(dim=1)
-    per_sd_meta = qmeta_rs.std(dim=1, unbiased=False)
-    per_mu_min = qmin_rs.mean(dim=1)
-    per_sd_min = qmin_rs.std(dim=1, unbiased=False)
-
-    batch_mu_meta = per_mu_meta.median().item()
-    batch_sd_meta = per_sd_meta.median().item()
-    batch_mu_min = per_mu_min.median().item()
-    batch_sd_min = per_sd_min.median().item()
-
-    if ema_state["mu_meta"] is None:
-        ema_state["mu_meta"] = batch_mu_meta
-        ema_state["sd_meta"] = batch_sd_meta + eps_small
-        ema_state["mu_min"] = batch_mu_min
-        ema_state["sd_min"] = batch_sd_min + eps_small
-    else:
-        ema_state["mu_meta"] = (1 - ema_alpha) * ema_state["mu_meta"] + ema_alpha * batch_mu_meta
-        ema_state["sd_meta"] = (1 - ema_alpha) * ema_state["sd_meta"] + ema_alpha * (batch_sd_meta + eps_small)
-        ema_state["mu_min"] = (1 - ema_alpha) * ema_state["mu_min"] + ema_alpha * batch_mu_min
-        ema_state["sd_min"] = (1 - ema_alpha) * ema_state["sd_min"] + ema_alpha * (batch_sd_min + eps_small)
-
-    scale = ema_state["sd_min"] / (ema_state["sd_meta"] + eps_small)
-    shift = ema_state["mu_min"] - scale * ema_state["mu_meta"]
-    return scale, shift
-
-
-def meta_kl_loss(actor, qf1, qf2, qonline_net, w, obs_batch, K, p_lo, p_hi, ema_state, ema_alpha=0.02):
-    """
-    KL(π || Boltz(Q_meta)) estimate using K actions/state.
-    Returns (kl_term, frac_kept, scale_used)
-    """
-    B = obs_batch.shape[0]
-    device = obs_batch.device
-
-    obs_rep = obs_batch.repeat_interleave(K, dim=0)  # [B*K, obs_dim]
-    pi_rep, log_pi_rep, _ = actor.get_action(obs_rep)  # [B*K, act], [B*K,1]
-    log_pi_flat = log_pi_rep.view(-1)
-
-    with torch.no_grad():
-        q1 = qf1(obs_rep, pi_rep).view(-1)
-        q2 = qf2(obs_rep, pi_rep).view(-1)
-        qmin = torch.min(q1, q2)  # [B*K]
-
-        #qmeta_emb = qmeta_net(obs_rep, pi_rep)  # [B*K, D]
-        #qmeta_rep = torch.einsum("bd,d->b", qmeta_emb, w).view(-1)  # [B*K]
-        qmeta_rep  = qonline_net(obs_rep, pi_rep, extra_vec.repeat_interleave(K, dim=0)).view(-1)
-
-        scale, shift = _affine_match(qmeta_rep, qmin, B, K, ema_state, ema_alpha)
-        qmeta_scaled = qmeta_rep * 1 #scale + shift
-
-        plo = torch.quantile(qmeta_scaled, p_lo)
-        phi = torch.quantile(qmeta_scaled, p_hi)
-        keep_mask = (qmeta_scaled >= plo) & (qmeta_scaled <= phi)
-
-    if keep_mask.any():
-        kl_term = (log_pi_flat[keep_mask] - qmeta_scaled[keep_mask]).mean()
-    else:
-        kl_term = torch.tensor(0.0, device=device)
-
-    return kl_term, keep_mask.float().mean().item(), float(scale)
-
-
-def cem_improve_action(state, a_D, qmeta_net, lambda_penalty=1.0,
-                       N=64, K=6, T=3, sigma0=0.2, action_low=-1.0, action_high=1.0):
-    """
-    state: [obs_dim] tensor
-    a_D: [act_dim] tensor (dataset action)
-    qmeta_net: function(state_batch, action_batch) -> Q values
-    """
-
-    act_dim = a_D.shape[-1]
+def cem_improve_actions_batch(
+    states: torch.Tensor,
+    a_D: torch.Tensor,
+    qmeta_fn,
+    action_low: torch.Tensor,
+    action_high: torch.Tensor,
+    lambda_penalty: float = 0.05,
+    N: int = 64,
+    K: int = 6,
+    T: int = 3,
+    sigma0: float = 0.2,
+) -> torch.Tensor:
+    device = states.device
+    B, act_dim = a_D.shape
+    act_range = (action_high - action_low).abs()
     mean = a_D.clone()
-    cov = (sigma0 ** 2) * torch.eye(act_dim, device=state.device)
-
-    for t in range(T):
-        # 1. Sample N candidates
-        mvn = torch.distributions.MultivariateNormal(mean, cov)
-        actions = mvn.sample((N,))
-        actions = torch.clamp(actions, action_low, action_high)
-
-        # 2. Evaluate penalized Q
-        states = state.unsqueeze(0).repeat(N, 1)
-        q_vals = qmeta_net(states, actions).squeeze(-1)  # [N]
-        penalties = lambda_penalty * ((actions - a_D)**2).sum(dim=-1)
-        scores = q_vals - penalties
-
-        # 3. Select top-K
-        topk_idx = torch.topk(scores, K, dim=0).indices
-        elites = actions[topk_idx]
-
-        # 4. Update mean/cov
-        mean = elites.mean(dim=0)
-        cov = torch.from_numpy(np.cov(elites.cpu().numpy().T)).float().to(state.device)
-        # add small epsilon to avoid singular
-        cov += 1e-6 * torch.eye(act_dim, device=state.device)
-
-    return mean.detach()  # improved action
-
+    std = torch.full_like(a_D, sigma0) * act_range
+    for _ in range(T):
+        eps = torch.randn(B, N, act_dim, device=device)
+        A = mean.unsqueeze(1) + std.unsqueeze(1) * eps
+        A = A.clamp(action_low.unsqueeze(1), action_high.unsqueeze(1))  # [B,N,act]
+        S = states.unsqueeze(1).expand(B, N, -1).reshape(B * N, -1)
+        A_flat = A.reshape(B * N, act_dim)
+        Q = qmeta_fn(S, A_flat).view(B, N)  # [B,N]
+        penalty = lambda_penalty * ((A - a_D.unsqueeze(1)).pow(2).sum(dim=-1))
+        scores = Q - penalty
+        topk_vals, topk_idx = scores.topk(K, dim=1)
+        idx_exp = topk_idx.unsqueeze(-1).expand(B, K, act_dim)
+        elites = torch.gather(A, dim=1, index=idx_exp)  # [B,K,act]
+        mean = elites.mean(dim=1)
+        std = elites.std(dim=1, unbiased=False) + 1e-6
+    return mean  # a*
 
 
 # ============================ MAIN ============================
 if __name__ == "__main__":
     args = tyro.cli(Args)
     K = args.pretrain_K
-    # Logging setup
     run_name = f"{args.env_id}_{args.exp_name}_{args.seed}_pre{int(args.pretrain)}_{int(time.time())}"
     if args.track:
         import wandb
@@ -350,21 +272,16 @@ if __name__ == "__main__":
     )
 
     with open(args.data_path, "rb") as f:
-        # state_data = pickle.load(f)
-        # np.random.shuffle(state_data)
         state_data = pickle.load(f)
         np.random.shuffle(state_data)
-    # state_data = np.array(state_data)
-    # np.random.shuffle(state_data)
     state_data = np.array(state_data)
     np.random.shuffle(state_data)
 
-    # Seeding
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = args.torch_deterministic
-    torch.cuda.manual_seed_all(args.seed)  # <-- IMPORTANT for all CUDA devices
+    torch.cuda.manual_seed_all(args.seed)
 
     device = torch.device(args.cuda_device if torch.cuda.is_available() and args.cuda else "cpu")
 
@@ -387,52 +304,34 @@ if __name__ == "__main__":
     q_optimizer = optim.Adam(list(qf1.parameters()) + list(qf2.parameters()), lr=args.q_lr)
     actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.policy_lr)
 
+    # Meta net (embedding) + load weights
     qmeta_net = QNetwork(envs).to(device)
+    if args.pretrained:
+        checkpoint2 = torch.load(args.model_path, map_location="cpu")
+        sf_state_dict = checkpoint2["sfmeta_network_state_dict"]
+        mapped_state_dict = {
+            "embedding.0.weight": sf_state_dict["l1.weight"],
+            "embedding.0.bias":   sf_state_dict["l1.bias"],
+            "embedding.2.weight": sf_state_dict["l2.weight"],
+            "embedding.2.bias":   sf_state_dict["l2.bias"],
+            "embedding.4.weight": sf_state_dict["l3.weight"],
+            "embedding.4.bias":   sf_state_dict["l3.bias"],
+        }
+        qmeta_net.load_state_dict(mapped_state_dict)
+    qmeta_net = qmeta_net.to(device)
+    qmeta_net.eval()
 
     # Discriminator -> meta vector w
     state_dim = int(np.array(envs.single_observation_space.shape).prod())
     discriminator = Discriminator(state_dim, args.n_skills_total)
     disc_ckpt = torch.load(args.disc_path, map_location="cpu")
     discriminator.load_state_dict(disc_ckpt['disc_state_dict'])
-    #discriminator.load_state_dict(torch.load(args.disc_path, map_location="cpu")["disc_state_dict"])
     discriminator = discriminator.to(device)
 
-
-    extra_vec = torch.tensor([[1, 0, 0, 0, 0, 0]] * args.batch_size,  device=device)
-    qonline_net = Qonlinenet(envs, 6).to(device)
-
-    if(args.pretrained):
-        checkpoint3 = torch.load(args.qnet_path, map_location="cpu")
-        qnet_state_dict = checkpoint3["q_network_state_dict"]
-        mapped_state_dict = {}
-        mapped_state_dict["fc1.weight"] = qnet_state_dict["fc1.weight"]
-        mapped_state_dict["fc1.bias"]   = qnet_state_dict["fc1.bias"]
-        mapped_state_dict["fc2.weight"] = qnet_state_dict["fc2.weight"]
-        mapped_state_dict["fc2.bias"]   = qnet_state_dict["fc2.bias"]
-        mapped_state_dict["fc3.weight"] = qnet_state_dict["fc3.weight"]
-        mapped_state_dict["fc3.bias"]   = qnet_state_dict["fc3.bias"]
-        qonline_net.load_state_dict(mapped_state_dict)
-    qonline_net = qonline_net.to(device)
-
-    # map pretrained meta model if available
-    if args.pretrained:
-        checkpoint2 = torch.load(args.model_path, map_location="cpu")
-        sf_state_dict = checkpoint2["sfmeta_network_state_dict"]
-        mapped_state_dict = {
-            "embedding.0.weight": sf_state_dict["l1.weight"],
-            "embedding.0.bias": sf_state_dict["l1.bias"],
-            "embedding.2.weight": sf_state_dict["l2.weight"],
-            "embedding.2.bias": sf_state_dict["l2.bias"],
-            "embedding.4.weight": sf_state_dict["l3.weight"],
-            "embedding.4.bias": sf_state_dict["l3.bias"],
-        }
-        qmeta_net.load_state_dict(mapped_state_dict)
-    qmeta_net = qmeta_net.to(device)
-
-    w = discriminator.q.weight[0].detach().to(device)
+    w = discriminator.q.weight[11].detach().to(device)
     w = w / (w.norm() + 1e-8)
 
-    # Alpha autotune
+    # Alpha autotune (unchanged)
     if args.autotune:
         target_entropy = -torch.prod(torch.Tensor(envs.single_action_space.shape).to(device)).item()
         log_alpha = torch.zeros(1, requires_grad=True, device=device)
@@ -441,7 +340,7 @@ if __name__ == "__main__":
     else:
         alpha = args.alpha
 
-    # Replay buffer
+    # Replay buffer (unchanged)
     rb = ReplayBuffer(
         args.buffer_size,
         envs.single_observation_space,
@@ -451,55 +350,63 @@ if __name__ == "__main__":
         handle_timeout_termination=False,
     )
 
-    # ========= Stage 1: Meta pretrain (actor-only, no critic/alpha updates) =========
-    ema_state = {"mu_meta": None, "sd_meta": None, "mu_min": None, "sd_min": None}
+    # ========= Stage 1: Offline pretrain via CEM distillation (using qmeta_net + w) =========
     obs, _ = envs.reset(seed=args.seed)
     envs.action_space.seed(args.seed)
-    states,actions = get_all_pairs(state_data)
-    train_ds = TensorDataset(states.cpu())
-    train_loader = DataLoader(
-    train_ds,
-    batch_size=args.pretrain_batch_size,   # e.g., 256
-    shuffle=True,                          # reshuffle each epoch
-    drop_last=True,                        # cleaner batch sizes
-    pin_memory=True
-)
-    
-    num_epochs = 10            # <-- set how many passes you want
-    grad_clip = 1.0
-    K = args.pretrain_K
+    states, actions = get_all_pairs(state_data)
 
-    #qf1.eval(); qf2.eval()     # critics used only for calibration
+    train_ds = TensorDataset(states.cpu(), actions.cpu())
+    train_loader = DataLoader(
+        train_ds,
+        batch_size=args.pretrain_batch_size,
+        shuffle=True,
+        drop_last=True,
+        pin_memory=True
+    )
+    
+    num_epochs = 10
+    grad_clip = 1.0
     actor.train()
 
-    if args.pretrain:
-        # print("==> Meta pretrain: collecting random transitions...")
-        # for t in range(args.pretrain_collect_steps):
-        #     actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-        #     next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-        #     real_next_obs = next_obs.copy()
-        #     for idx, trunc in enumerate(truncations):
-        #         if trunc:
-        #             real_next_obs[idx] = infos["final_observation"][idx]
-        #     rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
-        #     obs = next_obs
+    @torch.no_grad()
+    def qmeta_fn(S, A):
+        """Return q_meta(s,a) = <phi(s,a), w> using qmeta_net + w."""
+        emb = qmeta_net(S, A)          # [B, 32]
+        q = torch.einsum("bd,d->b", emb, w)  # [B]
+        return q.unsqueeze(-1)         # [B,1]
 
-        print("==> Meta pretrain: optimizing actor to match Boltzmann(Q_meta)...")
+    if args.pretrain:
+        print("==> Offline pretrain: CEM improving dataset actions and distilling into actor (qmeta)...")
         pretrain_actor_optimizer = optim.Adam(list(actor.parameters()), lr=args.pretrain_lr)
         global_train_step = 0
+
+        # Action bounds tensors
+        action_low_t  = torch.tensor(envs.single_action_space.low,  dtype=torch.float32, device=device).unsqueeze(0)
+        action_high_t = torch.tensor(envs.single_action_space.high, dtype=torch.float32, device=device).unsqueeze(0)
+
         for epoch in range(1, num_epochs + 1):
             epoch_loss = 0.0
-            for (batch_states_cpu,) in train_loader:
+            for batch_states_cpu, batch_actions_cpu in train_loader:
                 batch_states = batch_states_cpu.to(device, non_blocking=True)
+                batch_actions_D = batch_actions_cpu.to(device, non_blocking=True)
 
-                kl_term, frac_kept, scale_used = meta_kl_loss(
-                    actor=actor, qf1=qf1, qf2=qf2, qonline_net=qonline_net, w=w,
-                    obs_batch=batch_states, K=K,
-                    p_lo=args.pretrain_p_lo, p_hi=args.pretrain_p_hi,
-                    ema_state=ema_state, ema_alpha=args.std_ema_alpha,
-                )
-                loss = kl_term
+                # CEM improvement around dataset actions (no grad)
+                with torch.no_grad():
+                    a_star = cem_improve_actions_batch(
+                        states=batch_states,
+                        a_D=batch_actions_D,
+                        qmeta_fn=qmeta_fn,
+                        action_low=action_low_t.expand(batch_states.size(0), -1),
+                        action_high=action_high_t.expand(batch_states.size(0), -1),
+                        lambda_penalty=args.cem_lambda_penalty,
+                        N=args.cem_N,
+                        K=args.cem_K,
+                        T=args.cem_T,
+                        sigma0=args.cem_sigma0,
+                    )
 
+                # Distill actor to a_star via NLL
+                loss = actor_nll_on_actions(actor, batch_states, a_star)
                 pretrain_actor_optimizer.zero_grad()
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(actor.parameters(), grad_clip)
@@ -507,181 +414,43 @@ if __name__ == "__main__":
 
                 epoch_loss += loss.item()
                 if (global_train_step % args.log_every_pretrain) == 0:
-                    writer.add_scalar("pretrain/step_loss", loss.item(), global_train_step)
-                    writer.add_scalar("pretrain/frac_kept", frac_kept, global_train_step)
-                    writer.add_scalar("pretrain/scale", scale_used, global_train_step)
-
+                    writer.add_scalar("pretrain/step_nll", loss.item(), global_train_step)
                 global_train_step += 1
 
             epoch_loss /= max(1, len(train_loader))
-            writer.add_scalar("pretrain/epoch_loss", epoch_loss, epoch)
-            print(f"[pretrain] epoch {epoch:02d} | train_KL {epoch_loss:.4f}")
+            writer.add_scalar("pretrain/epoch_nll", epoch_loss, epoch)
+            print(f"[pretrain] epoch {epoch:02d} | NLL {epoch_loss:.4f}")
 
-        # for step in range(args.pretrain_steps):
-        #     num_states=states.shape[0]
-        #     indices = torch.randint(0, num_states, (args.batch_size,), device=device)
-        #     sampled_states = states[indices].to(device)
-        #     #data = rb.sample(args.pretrain_batch_size)
-        #     kl_term, frac_kept, scale_used = meta_kl_loss(
-        #         actor=actor,
-        #         qf1=qf1,
-        #         qf2=qf2,
-        #         qmeta_net=qmeta_net,
-        #         w=w,
-        #         obs_batch=sampled_states,
-        #         K=args.pretrain_K,
-        #         p_lo=args.pretrain_p_lo,
-        #         p_hi=args.pretrain_p_hi,
-        #         ema_state=ema_state,
-        #         ema_alpha=args.std_ema_alpha,
-        #     )
-        #     actor_loss_pre = kl_term  # minimize KL(π || Boltz(Q_meta))
-
-        #     pretrain_actor_optimizer.zero_grad()
-        #     actor_loss_pre.backward()
-        #     pretrain_actor_optimizer.step()
-
-        #     if (step % args.log_every_pretrain) == 0:
-        #         writer.add_scalar("pretrain/actor_loss_meta", actor_loss_pre.item(), step)
-        #         writer.add_scalar("pretrain/frac_kept", frac_kept, step)
-        #         writer.add_scalar("pretrain/scale", scale_used, step)
-        #         writer.add_scalar("pretrain/ema_sd_meta", float(ema_state["sd_meta"]), step)
-        #         writer.add_scalar("pretrain/ema_sd_min", float(ema_state["sd_min"]), step)
-
-        # reset env for SAC proper
+        # reset env for quick check
         obs, _ = envs.reset(seed=args.seed)
-        print("==> Pretrain done. Proceed to PURE SAC...")
-    
+        print("==> Pretrain done. Quick eval before saving...")
+
+    # Save actor
     model_dir = f"runs/checkpoints/pretrain_actor/{run_name}"
     os.makedirs(model_dir, exist_ok=True)
     torch.save({
-            "pretrain_actor_state_dict": actor.state_dict(),
-        }, os.path.join(model_dir, f"latest.pth"))
-    
+        "pretrain_actor_state_dict": actor.state_dict(),
+    }, os.path.join(model_dir, f"latest.pth"))
+    print(f"Saved pretrained actor to {os.path.join(model_dir, 'latest.pth')}")
+
+    # ======= Quick EVAL BEFORE closing envs =======
+    obse, _ = envs.reset(seed=args.seed)
+    for n in range(25):
+        ep_return = 0.0
+        terminations = False
+        truncations = False
+        while not (terminations or truncations):
+            with torch.no_grad():
+                actions_np, _, _ = actor.get_action(torch.tensor(obse, dtype=torch.float32, device=device))
+                actions_np = actions_np.detach().cpu().numpy()
+            next_obs, rewards, terminations, truncations, infos = envs.step(actions_np)
+            ep_return += float(rewards[0])
+            obse = next_obs
+        print(f"eval episode {n} return {ep_return:.3f}")
+        writer.add_scalar("pretrain/pretrained_ep_return", ep_return, n)
+
     envs.close()
     writer.close()
 
-        # TRY NOT TO MODIFY: start the game
-    obse, _ = envs.reset(seed=args.seed)
-    
-    for n in range(25):
-        ep_return = 0
-        terminations = False
-        while not terminations:
-            actions, _, _ = actor.get_action(torch.Tensor(obse).to(device))
-            actions = actions.detach().cpu().numpy()
-            next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-            ep_return += rewards
-            obse = next_obs
-        print(f"eval episode {n} return {ep_return}")
-        writer.add_scalar("pretrain/pretrained_ep_return", ep_return, n)
-
-
-
-
-    # ========= Stage 2: PURE SAC (no KL, no meta compute) =========
-    # start_time = time.time()
-
-    # for global_step in range(args.total_timesteps):
-    #     # action
-    #     if global_step < args.learning_starts:
-    #         actions = np.array([envs.single_action_space.sample() for _ in range(envs.num_envs)])
-    #     else:
-    #         with torch.no_grad():
-    #             actions, _, _ = actor.get_action(torch.tensor(obs, dtype=torch.float32, device=device))
-    #             actions = actions.detach().cpu().numpy()
-
-    #     # step
-    #     next_obs, rewards, terminations, truncations, infos = envs.step(actions)
-
-    #     # episodic logs
-    #     if "final_info" in infos:
-    #         for info in infos["final_info"]:
-    #             if info is not None:
-    #                 print(f"global_step={global_step}, episodic_return={info['episode']['r']}")
-    #                 writer.add_scalar("charts/episodic_return", info["episode"]["r"], global_step)
-    #                 writer.add_scalar("charts/episodic_length", info["episode"]["l"], global_step)
-    #                 break
-
-    #     # add to buffer (handle truncation)
-    #     real_next_obs = next_obs.copy()
-    #     for idx, trunc in enumerate(truncations):
-    #         if trunc:
-    #             real_next_obs[idx] = infos["final_observation"][idx]
-    #     rb.add(obs, real_next_obs, actions, rewards, terminations, infos)
-
-    #     obs = next_obs
-
-    #     # updates
-    #     if global_step > args.learning_starts:
-    #         data = rb.sample(args.batch_size)
-
-    #         # --- Critic update ---
-    #         with torch.no_grad():
-    #             next_state_actions, next_state_log_pi, _ = actor.get_action(data.next_observations)
-    #             qf1_next_target = qf1_target(data.next_observations, next_state_actions)
-    #             qf2_next_target = qf2_target(data.next_observations, next_state_actions)
-    #             min_qf_next_target = torch.min(qf1_next_target, qf2_next_target) - alpha * next_state_log_pi
-    #             next_q_value = data.rewards.flatten() + (1 - data.dones.flatten()) * args.gamma * (
-    #                 min_qf_next_target
-    #             ).view(-1)
-
-    #         qf1_a_values = qf1(data.observations, data.actions).view(-1)
-    #         qf2_a_values = qf2(data.observations, data.actions).view(-1)
-    #         qf1_loss = F.mse_loss(qf1_a_values, next_q_value)
-    #         qf2_loss = F.mse_loss(qf2_a_values, next_q_value)
-    #         qf_loss = qf1_loss + qf2_loss
-
-    #         q_optimizer.zero_grad()
-    #         qf_loss.backward()
-    #         q_optimizer.step()
-
-    #         # --- Policy update (delayed) ---
-    #         if global_step % args.policy_frequency == 0:
-    #             for _ in range(args.policy_frequency):
-    #                 pi, log_pi, _ = actor.get_action(data.observations)
-    #                 qf1_pi = qf1(data.observations, pi)
-    #                 qf2_pi = qf2(data.observations, pi)
-    #                 min_q_pi = torch.min(qf1_pi, qf2_pi)
-    #                 sac_actor_loss = (alpha * log_pi - min_q_pi).mean()
-
-    #                 actor_optimizer.zero_grad()
-    #                 sac_actor_loss.backward()
-    #                 actor_optimizer.step()
-
-    #             # alpha autotune
-    #             if args.autotune:
-    #                 with torch.no_grad():
-    #                     _, log_pi_a, _ = actor.get_action(data.observations)
-    #                 alpha_loss = (-log_alpha.exp() * (log_pi_a + target_entropy)).mean()
-    #                 a_optimizer.zero_grad()
-    #                 alpha_loss.backward()
-    #                 a_optimizer.step()
-    #                 alpha = log_alpha.exp().item()
-
-    #         # target networks
-    #         if global_step % args.target_network_frequency == 0:
-    #             for param, target_param in zip(qf1.parameters(), qf1_target.parameters()):
-    #                 target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-    #             for param, target_param in zip(qf2.parameters(), qf2_target.parameters()):
-    #                 target_param.data.copy_(args.tau * param.data + (1 - args.tau) * target_param.data)
-
-    #         # logging
-    #         if global_step % 100 == 0:
-    #             writer.add_scalar("losses/qf1_values", qf1_a_values.mean().item(), global_step)
-    #             writer.add_scalar("losses/qf2_values", qf2_a_values.mean().item(), global_step)
-    #             writer.add_scalar("losses/qf1_loss", qf1_loss.item(), global_step)
-    #             writer.add_scalar("losses/qf2_loss", qf2_loss.item(), global_step)
-    #             writer.add_scalar("losses/qf_loss", (qf_loss.item() / 2.0), global_step)
-    #             writer.add_scalar("losses/actor_loss", sac_actor_loss.item(), global_step)
-    #             writer.add_scalar("losses/alpha", alpha, global_step)
-
-    #             sps = int(global_step / (time.time() - start_time))
-    #             print("SPS:", sps)
-    #             writer.add_scalar("charts/SPS", sps, global_step)
-    #             if args.autotune:
-    #                 writer.add_scalar("losses/alpha_loss", alpha_loss.item(), global_step)
-
-    #         if global_step % 1000 == 0:
-    #             writer.add_scalar("intrinsic_rewards", float(data.rewards.mean().item()), global_step)
-
+    # ========= Stage 2: PURE SAC (kept commented) =========
+    # (unchanged big block omitted)
