@@ -15,8 +15,8 @@ import tyro
 @dataclass
 class Args:
     exp_name: str = "joint_phi_task"
-    env_data_path: str = "runs/data/Hopper-v4__ddpg_continuous_action__1__1755533445/task_regression_data.pkl"
-    env_id: str = "Hopper-v4"
+    env_data_path: str = "runs/data/InvertedPendulum-v4__td3__1__1757919914/task_regression_data.pkl"
+    env_id: str = "InvertedPendulum-v4"
     sf_dim: int = 32
     batch_size: int = 1024
     sample_size: int = 1000000
@@ -31,8 +31,8 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/Hopper-v4__MAML_SF__1__2025-08-19_23-42-42__1755627162/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/Hopper-v4__q_online__1__2025-08-19_12-44-30__1755587670/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/InvertedPendulum-v4__MAML_SF__1__2025-09-04_11-37-16__1756966036/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/InvertedPendulum-v4__q_online__1__2025-08-18_21-19-47__1755532187/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
     n_skills_selected: int = 6

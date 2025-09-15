@@ -20,7 +20,7 @@ from cleanrl.diayn.models_cont import Discriminator
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 14
+    seed: int = 35
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -71,7 +71,7 @@ class Args:
     model_path = "runs/checkpoints/maml/InvertedPendulum-v4__MAML_SF__1__2025-09-04_11-37-16__1756966036/latest.pth"
     disc_path: str = "runs/checkpoints/qtargetmaml/InvertedPendulum-v4__q_online__1__2025-08-18_21-19-47__1755532187/latest.pth"
     qnet_path: str = "runs/checkpoints/qtargetmaml/InvertedPendulum-v4__q_online__1__2025-08-18_21-19-47__1755532187/latest.pth"
-    w_path: str  = "runs/checkpoints/env_phi_task/Swimmer-v4__joint_phi_task__1__2025-08-17_13-46-55/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/InvertedPendulum-v4__joint_phi_task__1__2025-09-15_16-29-49/latest.pth"
     pretrained: bool = True
     w_random: bool = False
     n_skills_total: int = 25
@@ -244,18 +244,18 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     #discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
     discriminator = discriminator.to(device)
 
-    # w = torch.randn(32).to(device)
-    # w = w / (w.norm() + 1e-8)
-    # task_vector = TaskVector(32).to(device)
-    # checkpoint1 = torch.load(args.w_path)
-    # if(not args.w_random):
-    #     task_vector.load_state_dict(checkpoint1["task_vector"])
-    # w = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
-
-
-    w = discriminator.q.weight[1].detach().to(device)
-   #w = torch.randn(32).to(device)
+    w = torch.randn(32).to(device)
     w = w / (w.norm() + 1e-8)
+    task_vector = TaskVector(32).to(device)
+    checkpoint1 = torch.load(args.w_path)
+    if(not args.w_random):
+        task_vector.load_state_dict(checkpoint1["task_vector"])
+    w = (task_vector.w / (torch.norm(task_vector.w) + 1e-8)).detach()
+
+
+#     w = discriminator.q.weight[1].detach().to(device)
+#    #w = torch.randn(32).to(device)
+#     w = w / (w.norm() + 1e-8)
 
     envs.single_observation_space.dtype = np.float32
     rb = ReplayBuffer(

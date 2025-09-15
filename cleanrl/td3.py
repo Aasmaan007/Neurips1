@@ -13,13 +13,14 @@ import torch.optim as optim
 import tyro
 from stable_baselines3.common.buffers import ReplayBuffer
 from torch.utils.tensorboard import SummaryWriter
+import pickle
 
 
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
     """the name of this experiment"""
-    seed: int = 35
+    seed: int = 1
     """seed of the experiment"""
     torch_deterministic: bool = True
     """if toggled, `torch.backends.cudnn.deterministic=False`"""
@@ -130,7 +131,7 @@ class Actor(nn.Module):
         x = torch.tanh(self.fc_mu(x))
         return x * self.action_scale + self.action_bias
 
-
+reward_data=[]
 if __name__ == "__main__":
     import stable_baselines3 as sb3
 
@@ -213,6 +214,8 @@ poetry run pip install "stable_baselines3==2.0.0a1"
         # TRY NOT TO MODIFY: execute the game and log data.
         next_obs, rewards, terminations, truncations, infos = envs.step(actions)
 
+        reward_data.append((obs.copy() , actions , rewards , next_obs.copy() , terminations))
+
         # TRY NOT TO MODIFY: record rewards for plotting purposes
         if "final_info" in infos:
             for info in infos["final_info"]:
@@ -286,6 +289,13 @@ poetry run pip install "stable_baselines3==2.0.0a1"
                     int(global_step / (time.time() - start_time)),
                     global_step,
                 )
+
+    # #comment theses lines when not required
+    # print(f"Saving reward {len(reward_data)} entries")
+    # model_dir = f"runs/data/{run_name}"
+    # os.makedirs(model_dir, exist_ok=True)
+    # with open(os.path.join(model_dir, "task_regression_data.pkl"), "wb") as f:
+    #     pickle.dump(reward_data, f)
 
     if args.save_model:
         model_path = f"runs/{run_name}/{args.exp_name}.cleanrl_model"
