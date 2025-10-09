@@ -18,7 +18,7 @@ from torch.utils.tensorboard import SummaryWriter
 @dataclass
 class Args:
     exp_name: str = os.path.basename(__file__)[: -len(".py")]
-    seed: int = 35
+    seed: int = 81
     torch_deterministic: bool = True
     cuda: bool = True
     track: bool = True
@@ -42,8 +42,8 @@ class Args:
     exploration_fraction: float = 0.5
     learning_starts: int = 10000
     train_frequency: int = 10
-    w_path: str  = "runs/checkpoints/env_phi_task/MountainCar-v0__joint_phi_task__1__2025-05-27_11-49-54/latest.pth"
-    model_path = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth"
+    w_path: str  = "runs/checkpoints/env_phi_task/MountainCar-v0__joint_phi_task__1__2025-10-02_03-23-58/latest.pth"
+    model_path = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-10-02_00-48-40__1759346320/latest.pth"
     w_random: bool = False
     pretrained: bool = True
 
@@ -113,7 +113,7 @@ if __name__ == "__main__":
         wandb.define_metric("stepwise/*", step_metric="gobal_step")      
         wandb.config.update(vars(args), allow_val_change=True)
 
-    writer = SummaryWriter(f"runs/sfruns/{run_name}")
+    writer = SummaryWriter(f"runs/mountain_sf/{run_name}")
     writer.add_text("hyperparameters", "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{k}|{v}|" for k, v in vars(args).items()])))
 
     random.seed(args.seed)

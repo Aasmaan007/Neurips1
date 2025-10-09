@@ -216,7 +216,7 @@ poetry run pip install "stable_baselines3==2.0.0a1"
     start_time = time.time()
     global_step = 0
     episode = 0
-    allowed_skills = [1, 2, 5, 6, 11, 22]
+    allowed_skills = [1, 3, 7, 8, 9, 15]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 

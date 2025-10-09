@@ -14,17 +14,17 @@ import tyro
 import gymnasium as gym
 import wandb
 
-from cleanrl.diayn.models import SFNetwork, Discriminator , QNetwork
+from cleanrl.diayn.models_cont import SFNetwork, Discriminator , QNetwork, Actor, Critic, SFNetworkbig
 
 @dataclass
 class Args:
     seed: int = 1
     cuda: bool = True
-    env_id: str = "MountainCar-v0"
+    env_id: str = "HalfCheetah-v4"
     exp_name: str = "MAML_SF"
-    data_path: str = "runs/data/MountainCar-v0__unified_collection_1__2025-10-01_18-01-12__1759321872/maml_training_data.pkl"
-    disc_path: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-10-01_17-31-43__1759320103/latest.pth"
-    qnet_path: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-10-01_17-31-43__1759320103/latest.pth"
+    data_path: str = "runs/data/HalfCheetah-v4__unified_collection_1__2025-08-07_15-08-06__1754559486/maml_training_data.pkl"
+    disc_path: str = "runs/checkpoints/qtargetmaml/HalfCheetah-v4__q_online__1__2025-08-07_11-08-50__1754545130/latest.pth"
+    qnet_path: str = "runs/checkpoints/qtargetmaml/HalfCheetah-v4__q_online__1__2025-08-07_11-08-50__1754545130/latest.pth"
     sf_dim: int = 32
     n_skills_total: int = 25
     n_skills_selected: int = 6
@@ -36,7 +36,7 @@ class Args:
     num_epochs: int = 500000
     support_size: int = 128
     query_size: int = 64
-    val_skill: int = 3
+    val_skill: int = 1
     wandb_project_name: str = "MAML_SF"
     wandb_entity: str = None
     track: bool = True
@@ -62,15 +62,21 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
-def get_all_pairs(states, n_actions):
+def get_all_pairs(state_action_data, n_actions):
     all_states, all_actions = [], []
-    for s in states:
-        for a in range(n_actions):
-            all_states.append(s)
-            one_hot = np.zeros(n_actions)
-            one_hot[a] = 1.0
-            all_actions.append(one_hot)
-    return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)
+    for state, action in state_action_data:
+        all_states.append(state)
+        all_actions.append(action)
+    print(all_states[0].shape, all_actions[0].shape)
+    return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)    
+    
+    # for s in states:
+    #     for a in range(n_actions):
+    #         all_states.append(s)
+    #         one_hot = np.zeros(n_actions)
+    #         one_hot[a] = 1.0
+    #         all_actions.append(one_hot)
+    # return torch.tensor(np.stack(all_states), dtype=torch.float32), torch.tensor(np.stack(all_actions), dtype=torch.float32)
 
 def partition_full_dataset(states, actions, support_fraction):
     total_samples = states.size(0)
@@ -99,11 +105,12 @@ def get_q_values(qnet, states, actions, z, n_skills, device):
         states_np = states.detach().cpu().numpy()
         state_aug = np.array([concat_state_latent(s, z, n_skills) for s in states_np])
         state_aug = torch.tensor(state_aug, dtype=torch.float32).to(device)
-
-        qvals = qnet(state_aug)  # shape: (B, num_actions)
-        action_indices = torch.argmax(actions, dim=1).view(-1, 1)  # shape: (B, 1)
-        q_selected = qvals.gather(1, action_indices).squeeze()  # shape: (B,)
-        return q_selected
+        actions = actions.to(device) if isinstance(actions, torch.Tensor) else torch.tensor(actions, dtype=torch.float32).to(device)
+        qvals = qnet(state_aug, actions)  # shape: (B, num_actions)
+        # qvals = qnet(state_aug)  # shape: (B, num_actions)
+        # action_indices = torch.argmax(actions, dim=1).view(-1, 1)  # shape: (B, 1)
+        # q_selected = qvals.gather(1, action_indices).squeeze()  # shape: (B,)
+        return qvals.squeeze()
 
 
 
@@ -196,29 +203,34 @@ def train():
         wandb.config.update(vars(args), allow_val_change=True)
 
     with open(args.data_path, "rb") as f:
-        state_data = pickle.load(f)
-        np.random.shuffle(state_data)
-    state_data = np.array(state_data)
-    np.random.shuffle(state_data)
+        # state_data = pickle.load(f)
+        # np.random.shuffle(state_data)
+        state_action_data = pickle.load(f)
+        np.random.shuffle(state_action_data)
+    # state_data = np.array(state_data)
+    # np.random.shuffle(state_data)
+    state_action_data = np.array(state_action_data)
+    np.random.shuffle(state_action_data)
 
     env = gym.make(args.env_id)
     state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
     
     discriminator = Discriminator(state_dim, args.n_skills_total)
     discriminator.load_state_dict(torch.load(args.disc_path)['disc_state_dict'])
     discriminator = discriminator.to(device)
 
-    qnet = QNetwork(env , args.n_skills_selected)
+    qnet = Critic(env , args.n_skills_selected)
     qnet.load_state_dict(torch.load(args.qnet_path)['q_network_state_dict'])
     qnet = qnet.to(device)
     
     
-    model = SFNetwork(state_dim, args.n_actions, sf_dim=args.sf_dim).to(device)
+    model = SFNetworkbig(state_dim, action_dim, sf_dim=args.sf_dim).to(device)
     meta_opt = optim.Adam(model.parameters(), lr=args.outer_lr)
     criterion = nn.MSELoss()
 
     dummy_state  = torch.zeros(1, state_dim, device=device)
-    dummy_action = torch.zeros(1, args.n_actions, device=device)
+    dummy_action = torch.zeros(1, action_dim, device=device)
     dummy_task   = torch.zeros(args.sf_dim,   device=device)
     _ = model(dummy_state, dummy_action, dummy_task)
 
@@ -230,12 +242,12 @@ def train():
             log_graph = False
         )
 
-    states, actions = get_all_pairs(state_data, args.n_actions)
+    states, actions = get_all_pairs(state_action_data, args.n_actions)
     (support_states, support_actions), (query_states, query_actions) = partition_full_dataset(states, actions, args.support_fraction)
 
     num_steps = args.num_steps
     # number of inner loop updates 
-    allowed_skills = [1, 3, 7, 8, 9, 15]
+    allowed_skills = [1 ,2, 5, 6, 11, 22]
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
 
@@ -251,12 +263,12 @@ def train():
 
         step_weights = get_per_step_loss_weights(args, epoch) if args.multi_step_loss else None
         # skills_this_epoch = random.sample([z for z in range(args.n_skills) if z!=args.val_skill], args.n_skills_epoch)
-        skills_this_epoch = random.sample([z for z in allowed_skills if z!=args.val_skill], args.n_skills_epoch)
+        skills_this_epoch = random.sample([z for z in allowed_skills], args.n_skills_epoch)
         # skills_this_epoch = [6]
         for z in skills_this_epoch:
             
-            if z == args.val_skill:
-                continue
+            #if z == args.val_skill:
+            #    continue
 
             z_ind =  true_skill_to_model_idx[z]
 

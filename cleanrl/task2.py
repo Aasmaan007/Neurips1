@@ -31,8 +31,8 @@ class Args:
     track: bool = True
     workers: int = 4
     dropout: float = 0.15
-    model_path2: str = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-05-13_00-16-21__1747075581/latest.pth" 
-    qnet_path: str =  "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    model_path2: str = "runs/checkpoints/maml/MountainCar-v0__MAML_SF__1__2025-10-02_00-48-40__1759346320/latest.pth" 
+    qnet_path: str =  "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-10-01_17-31-43__1759320103/latest.pth"
     env_weight: float = 0.30
     diayn_weight: float = 0.70
     n_skills_selected: int = 6

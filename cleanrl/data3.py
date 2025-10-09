@@ -29,7 +29,7 @@ class Args:
     exploration_fraction: float = 0.50
     pos_dup_factor: int = 60
     model_path_disc: str = "runs/checkpoints/diayn/LunarLander-v2__diayn__1__2025-04-25_22-19-35__1745599775/latest.pth"
-    model_path_qnet: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-05-12_17-41-07__1747051867/latest.pth"
+    model_path_qnet: str = "runs/checkpoints/qtargetmaml/MountainCar-v0__q_online__1__2025-10-01_17-31-43__1759320103/latest.pth"
     wandb_project_name: str = "unified_data_collection"
     wandb_entity: str = None
     track: bool = True
@@ -85,7 +85,7 @@ if __name__ == "__main__":
     q_net.load_state_dict(checkpoint_qnet["q_network_state_dict"])
     #discriminator.load_state_dict(checkpoint_disc["discriminator_state_dict"])
 
-    allowed_skills = [1, 2, 5, 6, 11, 22]
+    allowed_skills = [1, 3, 7, 8, 9, 15]
     model_idx_to_true_skill = {i: s for i, s in enumerate(allowed_skills)}
     true_skill_to_model_idx = {s: i for i, s in enumerate(allowed_skills)}  #22 ->5
 
